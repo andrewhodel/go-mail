@@ -27,7 +27,7 @@ var ip_ac ipac.Ipac
 type mail_from_func func(string) bool
 type rcpt_to_func func(string) bool
 type headers_func func(map[string]string) bool
-type full_message_func func([][]byte, []byte)
+type full_message_func func([]map[string]string, [][]byte)
 
 func main() {
 
@@ -73,11 +73,24 @@ func main() {
 		// return true if allowed, false if not
 		return true
 
-	}, func(attachments [][]byte, body []byte) {
+	}, func(parts_headers []map[string]string, parts [][]byte) {
 
 		fmt.Println("full email received")
-		fmt.Println("attachments", len(attachments))
-		fmt.Println("body", string(body))
+
+		// email is in parts
+		// a part can be an attachment or a body with a different content-type
+		// there is a parts_headers item for each part
+
+		fmt.Println("parts:", len(parts))
+		for p := range parts {
+			fmt.Println("###### part:", p)
+			fmt.Println("part headers:", parts_headers[p])
+			if (len(parts[p]) > 1000) {
+				fmt.Println("email part is too long to print")
+			} else {
+				fmt.Println(string(parts[p]))
+			}
+		}
 
 	})
 
@@ -214,8 +227,8 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 	to_address := ""
 
 	login := make([]byte, 0)
-	var attachments = make([][]byte, 0)
-	var body = make([]byte, 0)
+	var parts_headers = make([]map[string]string, 0)
+	var parts = make([][]byte, 0)
 
 	total_cmds := 0
 	total_bytes := 0
@@ -248,8 +261,8 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 		    break
 		}
 
-		fmt.Printf("smtp read length: %d\n", n)
-		fmt.Println(string(buf))
+		//fmt.Printf("smtp read length: %d\n", n)
+		//fmt.Println(string(buf))
 
 		if (total_bytes > 1024 * 1000 * 3) {
 			//fmt.Println("smtp data too big from ", ip)
@@ -321,6 +334,7 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 
 				// parse the headers
 				headers := make(map[string]string)
+				var headers_sent = false
 				v := make([]byte, 0)
 				i := -1
 				for {
@@ -342,13 +356,19 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 						if (string(v) == "--" + boundary) {
 
 							// boundary start
-							// send the headers for validation
-							authed = headers_func(headers)
 
-							if (authed == false) {
-								conn.Write([]byte("221\r\n"))
-								conn.Close()
-								return
+							if (headers_sent == false) {
+								// send the headers for validation
+								authed = headers_func(headers)
+
+								if (authed == false) {
+									conn.Write([]byte("221\r\n"))
+									conn.Close()
+									return
+								}
+
+								// only send them once
+								headers_sent = true
 							}
 
 							//fmt.Printf("boundary start at %d\n", i)
@@ -471,59 +491,9 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 
 							//fmt.Printf("##NB##%s##ENDNB##\n", nb)
 
-							// handle the new block
-							//fmt.Println("smtp data block length", len(nb))
-							//fmt.Println(nb_headers)
-
-							// a content-transfer-encoding header indicates if the content should be decoded
-							if (strings.Index(nb_headers["content-transfer-encoding"], "base64") > -1) {
-								// content-transfer-encoding:base64 content-type:application/octet-stream; charset=us-ascii; name="file.txt"
-								// is base64 encoded
-
-								// base64 strings only have 64 characters
-								// some parsers ignore some invalid characters (such as go's base64 module with \r and \n)
-								// some parsers ignore no invalid characters (such as JavaScript btoa())
-								// some parsers ignore all invalid characters
-
-								// it is best to remove all that don't exist in the 64 character set of base 64
-								// before sending the data to the parser, the invalid characters should not exist anyway
-								for ch := len(nb)-1; ch >= 0; ch-- {
-									if (nb[ch] == byte('\u000A') || nb[ch] == byte('\u000D')) {
-										// remove newline character
-										copy(nb[ch:], nb[ch+1:]) // Shift a[i+1:] left one index.
-										nb = nb[:len(nb)-1]     // Truncate slice.
-									}
-								}
-
-								/*
-								//fmt.Printf("decoding base64 from new block\n")
-								var decoding_err error
-								nb, decoding_err = base64.StdEncoding.DecodeString(string(nb))
-								if (decoding_err == nil) {
-									fmt.Println(string(nb))
-								} else {
-									//fmt.Println("smtp, error decoding base64 block", decoding_err)
-								}
-								*/
-
-							}
-
-							if (strings.Index(nb_headers["content-disposition"], "attachment") > -1) {
-								// content-disposition:attachment; filename="file.txt"
-								// email attachment
-
-								//fmt.Printf("attachment found\n")
-								//fmt.Printf("%s\n", nb)
-								attachments = append(attachments, nb)
-
-							} else {
-								// email body
-
-								//fmt.Printf("body found\n")
-								//fmt.Printf("%s\n", nb)
-								body = nb
-
-							}
+							// add each part and the nb_headers for each part
+							parts_headers = append(parts_headers, nb_headers)
+							parts = append(parts, nb)
 
 							// reset v
 							v = make([]byte, 0)
@@ -613,14 +583,11 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 				parse_data = false
 
 				// full email received, handle it
-				// use to_address, attachments, body
-				full_message_func(attachments, body)
+				full_message_func(parts_headers, parts)
 
-				// empty the attachments slice
-				attachments = nil
-
-				// empty body
-				body = nil
+				// free the memory
+				parts = nil
+				parts_headers = nil
 
 				// write 250 OK
 				conn.Write([]byte("250 OK\r\n"))
