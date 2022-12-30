@@ -1,0 +1,9 @@
+{
+"popPort": 995,
+"smtpPort": 465,
+"sslKey": "../keys/domain_com.key",
+"sslCert": "../keys/__domain_com.crt",
+"sslCa": "../keys/__domain_com.ca-bundle",
+"sslPassphrase": "",
+"fqdn": "domain.com"
+}
