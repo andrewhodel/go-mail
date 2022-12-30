@@ -26,6 +26,8 @@ var config Config
 var ip_ac ipac.Ipac
 type mail_from_func func(string) bool
 type rcpt_to_func func(string) bool
+type headers_func func(map[string]string) bool
+type full_message_func func([][]byte, []byte)
 
 func main() {
 
@@ -63,6 +65,20 @@ func main() {
 		// return true if allowed, false if not
 		return true
 
+	}, func(headers map[string]string) bool {
+
+		// HEADERS
+		fmt.Println("headers", headers)
+
+		// return true if allowed, false if not
+		return true
+
+	}, func(attachments [][]byte, body []byte) {
+
+		fmt.Println("full email received")
+		fmt.Println("attachments", len(attachments))
+		fmt.Println("body", string(body))
+
 	})
 
 }
@@ -70,7 +86,7 @@ func main() {
 // execute and respond to a command
 func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func) {
 
-	fmt.Printf("smtp smtpExecCmd: %s\n", c)
+	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
 	if (!*authed) {
 		*total_cmds += 1
@@ -84,11 +100,11 @@ func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, t
 		var tlsConn *tls.Conn
 		tlsConn = tls.Server(conn, &tls_config)
 		// run a handshake
-		//tlsConn.Handshake()
+		tlsConn.Handshake()
 		// convert tlsConn to a net.Conn type
 		conn = net.Conn(tlsConn)
 
-		fmt.Println("upgraded to TLS with STARTTLS")
+		//fmt.Println("upgraded to TLS with STARTTLS")
 
 	} else if (bytes.Index(c, []byte("EHLO")) == 0 || bytes.Index(c, []byte("HELO")) == 0) {
 
@@ -185,7 +201,7 @@ func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, t
 
 }
 
-func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func) {
+func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	defer conn.Close()
 
@@ -325,9 +341,19 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 
 						if (string(v) == "--" + boundary) {
 
-							//fmt.Printf("boundary reached at %d\n", i)
+							// boundary start
+							// send the headers for validation
+							authed = headers_func(headers)
 
-							// skip the newline after boundary
+							if (authed == false) {
+								conn.Write([]byte("221\r\n"))
+								conn.Close()
+								return
+							}
+
+							//fmt.Printf("boundary start at %d\n", i)
+
+							// skip the newline after boundary start
 							i = i + 1
 
 							// parse until next boundary
@@ -588,7 +614,7 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 
 				// full email received, handle it
 				// use to_address, attachments, body
-				fmt.Println("email received", body)
+				full_message_func(attachments, body)
 
 				// empty the attachments slice
 				attachments = nil
@@ -611,7 +637,7 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 
 }
 
-func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func) {
+func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	ln, err := net.Listen("tcp", ":" + strconv.FormatInt(lport, 10))
 	if err != nil {
@@ -642,13 +668,13 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 
 		fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
-		go smtpHandleClient(conn, tls_config, ip, config, mail_from_func, rcpt_to_func)
+		go smtpHandleClient(conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
 	}
 
 }
 
-func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func) {
+func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	service := ":" + strconv.FormatInt(lport, 10)
 	listener, err := tls.Listen("tcp", service, &tls_config)
@@ -682,13 +708,13 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 
 		fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
-		go smtpHandleClient(conn, tls_config, ip, config, mail_from_func, rcpt_to_func)
+		go smtpHandleClient(conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
 	}
 
 }
 
-func smtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func) {
+func smtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	cert, err := tls.LoadX509KeyPair(config.SslCert, config.SslKey)
 
@@ -700,9 +726,9 @@ func smtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 	tls_config := tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.VerifyClientCertIfGiven, ServerName: config.Fqdn}
 	tls_config.Rand = rand.Reader
 
-	go smtpListenNoEncrypt(ip_ac, 25, config, tls_config, mail_from_func, rcpt_to_func)
-	go smtpListenNoEncrypt(ip_ac, 587, config, tls_config, mail_from_func, rcpt_to_func)
-	go smtpListenTLS(ip_ac, 465, config, tls_config, mail_from_func, rcpt_to_func)
+	go smtpListenNoEncrypt(ip_ac, 25, config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+	go smtpListenNoEncrypt(ip_ac, 587, config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+	go smtpListenTLS(ip_ac, 465, config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
 	// keep main thread open
 	select {}
