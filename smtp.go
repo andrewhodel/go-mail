@@ -140,9 +140,9 @@ func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, t
 
 		//fmt.Printf("send address (between %d and %d): %s\n", i1, i2, s)
 
-		*authed = mail_from_func(string(s))
+		var mail_from_authed = mail_from_func(string(s))
 
-		if (*authed == false) {
+		if (mail_from_authed == false) {
 			// return 221
 			conn.Write([]byte("221\r\n"))
 			conn.Close()
