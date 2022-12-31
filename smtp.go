@@ -15,7 +15,8 @@ import (
 )
 
 type Config struct {
-	SmtpPort			int64	`json:"smtpPort"`
+	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
+	SmtpNonTLSPorts			[]int64	`json:"smtpNonTLSPorts"`
 	SslKey				string	`json:"sslKey"`
 	SslCert				string	`json:"sslCert"`
 	SslCa				string	`json:"sslCa"`
@@ -684,7 +685,7 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 		os.Exit(1)
 	}
 
-	fmt.Print("SMTP listening on " + strconv.FormatInt(lport, 10) + " without TLS\n")
+	fmt.Print("SMTP listening on " + strconv.FormatInt(lport, 10) + " with STARTTLS\n")
 
 	for {
 		conn, err := ln.Accept()
@@ -764,9 +765,14 @@ func smtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 	tls_config := tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.VerifyClientCertIfGiven, ServerName: config.Fqdn}
 	tls_config.Rand = rand.Reader
 
-	go smtpListenNoEncrypt(ip_ac, 25, config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
-	go smtpListenNoEncrypt(ip_ac, 587, config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
-	go smtpListenTLS(ip_ac, 465, config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+	for p := range config.SmtpNonTLSPorts {
+		// start a server without TLS on every defined non TLS port
+		go smtpListenNoEncrypt(ip_ac, config.SmtpNonTLSPorts[p], config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+	}
+	for p := range config.SmtpTLSPorts {
+		// start a server with TLS on every defined TLS port
+		go smtpListenTLS(ip_ac, config.SmtpTLSPorts[p], config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+	}
 
 	// keep main thread open
 	select {}
