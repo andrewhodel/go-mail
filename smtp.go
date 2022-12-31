@@ -54,8 +54,8 @@ func main() {
 		// MAIL FROM
 		fmt.Println("mail from", from_address)
 
-		creds := strings.Split(from_address, "@")
-		fmt.Println(creds)
+		//creds := strings.Split(from_address, "@")
+		//fmt.Println(creds)
 
 		// return true if allowed, false if not
 		return true
@@ -654,7 +654,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 								} else if (string(ss[0]) == "content-transfer-encoding" && string(all_lower_val) == "quoted-printable") {
 									// if content-transfer-encoding is quoted-printable
 									// lines ending with =\r\n need to remove =\r\n
-									fmt.Println("decoding content-transfer-encoding", string(all_lower_val))
+									//fmt.Println("decoding content-transfer-encoding", string(all_lower_val))
 									decode_qp = true
 								}
 
@@ -727,7 +727,7 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 			continue
 		}
 
-		fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
+		//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
 		go smtpHandleClient(true, false, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
@@ -767,7 +767,7 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 			continue
 		}
 
-		fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
+		//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
 		go smtpHandleClient(true, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
