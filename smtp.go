@@ -131,7 +131,7 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 		// respond with 250 and supported SMTP extensions
 		conn.Write([]byte("250-" + config.Fqdn + "\r\n"))
 		conn.Write([]byte("250-SIZE 14680064\r\n"))
-		conn.Write([]byte("250-8BITMIME 14680064\r\n"))
+		conn.Write([]byte("250-8BITMIME\r\n"))
 
 		if (using_tls == false) {
 			// start tls
