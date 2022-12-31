@@ -97,7 +97,7 @@ func main() {
 }
 
 // execute and respond to a command
-func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func) {
+func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, authed *bool, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
@@ -105,7 +105,7 @@ func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, t
 		*total_cmds += 1
 	}
 
-	if (bytes.Index(c, []byte("STARTTLS")) == 0) {
+	if (bytes.Index(c, []byte("STARTTLS")) == 0 && using_tls == false) {
 
 		conn.Write([]byte("220 Ready to start TLS\r\n"))
 
@@ -117,15 +117,49 @@ func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, t
 		// convert tlsConn to a net.Conn type
 		conn = net.Conn(tlsConn)
 
-		//fmt.Println("upgraded to TLS with STARTTLS")
+		fmt.Println("upgraded to TLS with STARTTLS")
+
+		// the upgraded conn object is only available in the local scope
+		// start a new smtpHandleClient in the existing go subroutine
+		smtpHandleClient(false, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+
+		/*
+		for {
+
+			buf := make([]byte, 1400)
+			n, err := conn.Read(buf)
+			if err != nil {
+			    //fmt.Printf("server: conn: read: %s\n", err)
+			    // close connection
+			    conn.Close()
+			    break
+			}
+
+			fmt.Printf("smtp read length: %d\n", n)
+			fmt.Println(string(buf))
+
+		}
+		*/
 
 	} else if (bytes.Index(c, []byte("EHLO")) == 0 || bytes.Index(c, []byte("HELO")) == 0) {
 
 		//fmt.Printf("EHLO command\n")
 
 		// respond with 250 and supported SMTP extensions
-		//conn.Write([]byte("250-" + config.Fqdn + " says hello\r\n250 SIZE 14680064\r\n250 STARTTLS\r\n"))
-		conn.Write([]byte("250 STARTTLS\r\n"))
+		conn.Write([]byte("250-" + config.Fqdn + "\r\n"))
+		conn.Write([]byte("250-SIZE 14680064\r\n"))
+		conn.Write([]byte("250-8BITMIME 14680064\r\n"))
+
+		if (using_tls == false) {
+			// start tls
+			conn.Write([]byte("250-STARTTLS\r\n"))
+		}
+
+		conn.Write([]byte("250-ENHANCEDSTATUSCODES\r\n"))
+		conn.Write([]byte("250-PIPELINING\r\n"))
+		conn.Write([]byte("250-CHUNKING\r\n"))
+		// this has to be sent without a - to allow the other extensions to be specified with the per EHLO
+		conn.Write([]byte("250 SMTPUTF8\r\n"))
 
 	} else if (bytes.Index(c, []byte("MAIL FROM:")) == 0) {
 
@@ -184,6 +218,7 @@ func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, t
 		if (*authed) {
 			*parse_data = true
 			conn.Write([]byte("354 End data with <CR><LF>.<CR><LF>\r\n"))
+			fmt.Println("DATA received, replied with 354")
 		} else {
 			// 221 <domain>
 			// service closing transmission channel
@@ -196,7 +231,8 @@ func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, t
 		//fmt.Printf("RSET command\n")
 
 		conn.Write([]byte("250 OK\r\n"))
-		conn.Close()
+
+		fmt.Println("RSET received, replied with 250")
 
 	} else if (bytes.Index(c, []byte("QUIT")) == 0) {
 
@@ -214,13 +250,13 @@ func smtpExecCmd(conn net.Conn, tls_config tls.Config, c []byte, authed *bool, t
 
 }
 
-func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
-
-	defer conn.Close()
+func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls.Config, ip string, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("new SMTP connection from %s\n", ip)
 
-	conn.Write([]byte("220 " + config.Fqdn + " go-mail-8314\r\n"))
+	if (is_new == true) {
+		conn.Write([]byte("220 " + config.Fqdn + " go-mail\r\n"))
+	}
 
 	authed := false
 	parse_data := false
@@ -261,8 +297,8 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 		    break
 		}
 
-		//fmt.Printf("smtp read length: %d\n", n)
-		//fmt.Println(string(buf))
+		fmt.Printf("smtp read length: %d\n", n)
+		fmt.Println(string(buf))
 
 		if (total_bytes > 1024 * 1000 * 3) {
 			//fmt.Println("smtp data too big from ", ip)
@@ -302,10 +338,10 @@ func smtpHandleClient(conn net.Conn, tls_config tls.Config, ip string, config Co
 
 				if (len(line) > 0) {
 					// do not send an empty line to smtpExecCmd()
-					smtpExecCmd(conn, tls_config, line, &authed, &to_address, &parse_data, &total_cmds, &login, ip, mail_from_func, rcpt_to_func)
+					smtpExecCmd(using_tls, conn, tls_config, config, line, &authed, &to_address, &parse_data, &total_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 				}
 
-				if (len(smtp_data) + 2 >= len(line) && len(smtp_data) >= 2) {
+				if (len(smtp_data) + 2 >= len(line) && len(smtp_data) >= 2 && len(line) + 2 <= len(smtp_data)) {
 					// remove the line from smtp_data
 					smtp_data = smtp_data[len(line) + 2:len(smtp_data)]
 				}
@@ -613,7 +649,7 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 		os.Exit(1)
 	}
 
-	fmt.Print("SMTP (RFC 5321 with 8314) listening on " + strconv.FormatInt(lport, 10) + " without TLS\n")
+	fmt.Print("SMTP listening on " + strconv.FormatInt(lport, 10) + " without TLS\n")
 
 	for {
 		conn, err := ln.Accept()
@@ -635,7 +671,7 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 
 		fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
-		go smtpHandleClient(conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+		go smtpHandleClient(true, false, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
 	}
 
@@ -651,7 +687,7 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 		os.Exit(1)
 	}
 
-	fmt.Print("SMTP (RFC 5321 with 8314) listening on " + strconv.FormatInt(lport, 10) + " with TLS\n")
+	fmt.Print("SMTP listening on " + strconv.FormatInt(lport, 10) + " with TLS\n")
 
 	for {
 
@@ -675,7 +711,7 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 
 		fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
-		go smtpHandleClient(conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+		go smtpHandleClient(true, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
 	}
 
