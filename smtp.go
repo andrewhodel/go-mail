@@ -117,29 +117,11 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 		// convert tlsConn to a net.Conn type
 		conn = net.Conn(tlsConn)
 
-		fmt.Println("upgraded to TLS with STARTTLS")
+		//fmt.Println("upgraded to TLS with STARTTLS")
 
 		// the upgraded conn object is only available in the local scope
 		// start a new smtpHandleClient in the existing go subroutine
 		smtpHandleClient(false, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
-
-		/*
-		for {
-
-			buf := make([]byte, 1400)
-			n, err := conn.Read(buf)
-			if err != nil {
-			    //fmt.Printf("server: conn: read: %s\n", err)
-			    // close connection
-			    conn.Close()
-			    break
-			}
-
-			fmt.Printf("smtp read length: %d\n", n)
-			fmt.Println(string(buf))
-
-		}
-		*/
 
 	} else if (bytes.Index(c, []byte("EHLO")) == 0 || bytes.Index(c, []byte("HELO")) == 0) {
 
