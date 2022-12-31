@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"strings"
 	"strconv"
+	"io"
 	"io/ioutil"
 	"encoding/json"
+	"mime/quotedprintable"
 	"os"
 	"github.com/andrewhodel/go-ip-ac"
 )
@@ -354,6 +356,10 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 				// parse the headers
 				headers := make(map[string]string)
 				var headers_sent = false
+
+				// decode quoted-printable body parts
+				var decode_qp = false
+
 				v := make([]byte, 0)
 				i := -1
 				for {
@@ -563,6 +569,15 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 							// add each part and the nb_headers for each part
 							parts_headers = append(parts_headers, nb_headers)
+
+							if (decode_qp == true) {
+								// decode quoted-printable data
+								qp, qp_err := io.ReadAll(quotedprintable.NewReader(bytes.NewReader(nb)))
+								if (qp_err == nil) {
+									nb = qp
+								}
+							}
+
 							parts = append(parts, nb)
 
 							// reset v
@@ -621,8 +636,9 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 								// add header
 								headers[string(ss[0])] = string(all_lower_val)
 
-								// add boundary from content-type
 								if (string(ss[0]) == "content-type") {
+									// add boundary from content-type
+
 									// use all_lower val to find the string boundary, because it may be spelled bOUndary or any other way
 									bb := bytes.Index(all_lower_val, []byte("boundary=\""))
 
@@ -634,6 +650,12 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										boundary = string(bytes.Trim(bbb, "\""))
 										fmt.Printf("boundary: %s\n", boundary)
 									}
+
+								} else if (string(ss[0]) == "content-transfer-encoding" && string(all_lower_val) == "quoted-printable") {
+									// if content-transfer-encoding is quoted-printable
+									// lines ending with =\r\n need to remove =\r\n
+									fmt.Println("decoding content-transfer-encoding", string(all_lower_val))
+									decode_qp = true
 								}
 
 							}
