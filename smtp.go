@@ -139,7 +139,7 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 
 		conn.Write([]byte("250-ENHANCEDSTATUSCODES\r\n"))
 		conn.Write([]byte("250-PIPELINING\r\n"))
-		conn.Write([]byte("250-CHUNKING\r\n"))
+		//conn.Write([]byte("250-CHUNKING\r\n")) // this is BDAT CHUNKING, the BDAT command must be supported
 		// this has to be sent without a - to allow the other extensions to be specified with the per EHLO
 		conn.Write([]byte("250 SMTPUTF8\r\n"))
 
@@ -200,7 +200,7 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 		if (*authed) {
 			*parse_data = true
 			conn.Write([]byte("354 End data with <CR><LF>.<CR><LF>\r\n"))
-			fmt.Println("DATA received, replied with 354")
+			//fmt.Println("DATA received, replied with 354")
 		} else {
 			// 221 <domain>
 			// service closing transmission channel
@@ -279,8 +279,8 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 		    break
 		}
 
-		fmt.Printf("smtp read length: %d\n", n)
-		fmt.Println(string(buf))
+		//fmt.Printf("smtp read length: %d\n", n)
+		//fmt.Println(string(buf))
 
 		if (total_bytes > 1024 * 1000 * 3) {
 			//fmt.Println("smtp data too big from ", ip)
@@ -345,7 +345,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 			if (data_block_end > -1) {
 
-				//fmt.Printf("smtp parse_data: (%d)\n%s\n", len(smtp_data), smtp_data)
+				//fmt.Printf("smtp parse_data: (%d)\n######\n%s\n######\n", len(smtp_data), smtp_data)
 				//fmt.Printf("<CR><LF>.<CR><LF> found at: %d of %d\n", data_block_end, len(smtp_data))
 
 				boundary := ""
@@ -371,9 +371,11 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 						// remove the \r from v
 						v = v[:len(v)-1]
 
-						if (string(v) == "--" + boundary) {
+						//fmt.Println("LINE:", len(v), string(v))
 
-							// boundary start
+						if (len(v) == 0) {
+
+							// empty line indicates body or new block start
 
 							if (headers_sent == false) {
 								// send the headers for validation
@@ -389,89 +391,71 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 								headers_sent = true
 							}
 
-							//fmt.Printf("boundary start at %d\n", i)
+							//fmt.Printf("email body or new block start at %d\n", i)
 
-							// skip the newline after boundary start
+							// skip the newline
 							i = i + 1
 
-							// parse until next boundary
 							var nb = make([]byte, 0)
-							for {
+							nb_headers := make(map[string]string)
 
-								if (i >= len(smtp_data)) {
+							var boundary_len = len("--" + boundary)
+
+							if (string(smtp_data[i:i + boundary_len]) == "--" + boundary) {
+
+								// there is a boundary, parse the new block headers
+								//fmt.Println("boundary found in email body, parsing new block")
+
+								// parse until next boundary
+								var nb_size = 0
+								for {
+
+									if (i >= len(smtp_data)) {
+										break
+									}
+
+									nb = append(nb, smtp_data[i])
+
+									// find next boundary
+									//if (bytes.Contains(nb, []byte("--" + boundary))) {
+									// same thing but faster
+									if (len(nb) >= 2+2+len(boundary)) {
+										if (bytes.Compare(nb[len(nb)-2-2-len(boundary):len(nb)], []byte("\r\n--" + boundary)) == 0) {
+											// set where to start processing after this nb
+											i = i - (2 + 2 + len(boundary))
+											// remove the boundary string from nb
+											nb = nb[0:len(nb) - (2 + 2 + len(boundary))]
+											break
+										}
+									}
+
+									i = i + 1
+									nb_size = nb_size + 1
+
+								}
+
+								//fmt.Println("nb_size", nb_size, "boundary_len", boundary_len)
+
+								if (nb_size == boundary_len + 7) {
+									// nb == --boundary--\r\n.\r\n
+									// and is empty
+									//fmt.Println("empty block")
 									break
 								}
 
-								nb = append(nb, smtp_data[i])
+								// get the headers from this nb
+								vv := make([]byte, 0)
+								last_header_end_pos := 0
+								for l := range nb {
+									vv = append(vv, nb[l])
 
-								// find next boundary
-								//if (bytes.Contains(nb, []byte("--" + boundary))) {
-								// same thing but faster
-								if (len(nb) >= 2+2+len(boundary)) {
-									if (bytes.Compare(nb[len(nb)-2-2-len(boundary):len(nb)], []byte("\r\n--" + boundary)) == 0) {
-										// set where to start processing after this nb
-										i = i - (2 + 2 + len(boundary))
-										// remove the boundary string from nb
-										nb = nb[0:len(nb) - (2 + 2 + len(boundary))]
-										break
-									}
-								}
+									//fmt.Printf("l: %d c: %c\n", l, nb[l])
 
-								i = i + 1
+									if (len(vv) > 3) {
 
-							}
+										if (nb[l] == []byte("\n")[0] && nb[l-1] == []byte("\r")[0] && nb[l+1] == []byte("\r")[0] && nb[l+2] == []byte("\n")[0]) {
 
-							// get the headers from this nb
-							nb_headers := make(map[string]string)
-							vv := make([]byte, 0)
-							last_header_end_pos := 0
-							for l := range nb {
-								vv = append(vv, nb[l])
-
-								//fmt.Printf("l: %d c: %c\n", l, nb[l])
-
-								if (len(vv) > 3) {
-
-									if (nb[l] == []byte("\n")[0] && nb[l-1] == []byte("\r")[0] && nb[l+1] == []byte("\r")[0] && nb[l+2] == []byte("\n")[0]) {
-
-										//fmt.Printf("last header found: %s\n", vv)
-										ss := bytes.Split(vv, []byte(":"))
-										for ssc := range ss {
-											// trim spaces
-											ss[ssc] = bytes.Trim(ss[ssc], " ")
-										}
-
-										if (len(ss) > 1) {
-
-											// remove any newlines from ss[1]
-											ss[1] = bytes.ReplaceAll(ss[1], []byte("\r"), []byte(""))
-											ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
-
-											// add header
-											nb_headers[string(bytes.ToLower(ss[0]))] = string(bytes.ToLower(ss[1]))
-
-											last_header_end_pos = l + 3
-
-										}
-
-										// the headers ended
-										//fmt.Printf("\\r\\n\\r\\n END OF NB HEADERS, %d total.\n", len(nb_headers))
-
-										break
-									} else if (nb[l] == []byte("\n")[0] && nb[l-1] == []byte("\r")[0]) {
-
-										ml := false
-										if (len(nb) > l + 1) {
-											// check for multiline header
-											if (nb[l+1] == []byte(" ")[0] || nb[l+1] == []byte("\t")[0]) {
-												//fmt.Printf("multiline header found\n")
-												ml = true
-											}
-										}
-
-										if (!ml) {
-
-											//fmt.Printf("header found: %s\n", vv)
+											//fmt.Printf("last header found: %s\n", vv)
 											ss := bytes.Split(vv, []byte(":"))
 											for ssc := range ss {
 												// trim spaces
@@ -491,21 +475,88 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 											}
 
-											// reset test string
-											vv = make([]byte, 0)
+											// the headers ended
+											//fmt.Printf("\\r\\n\\r\\n END OF NB HEADERS, %d total.\n", len(nb_headers))
+
+											break
+										} else if (nb[l] == []byte("\n")[0] && nb[l-1] == []byte("\r")[0]) {
+
+											ml := false
+											if (len(nb) > l + 1) {
+												// check for multiline header
+												if (nb[l+1] == []byte(" ")[0] || nb[l+1] == []byte("\t")[0]) {
+													//fmt.Printf("multiline header found\n")
+													ml = true
+												}
+											}
+
+											if (!ml) {
+
+												//fmt.Printf("header found: %s\n", vv)
+												ss := bytes.Split(vv, []byte(":"))
+												for ssc := range ss {
+													// trim spaces
+													ss[ssc] = bytes.Trim(ss[ssc], " ")
+												}
+
+												if (len(ss) > 1) {
+
+													// remove any newlines from ss[1]
+													ss[1] = bytes.ReplaceAll(ss[1], []byte("\r"), []byte(""))
+													ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
+
+													// add header
+													nb_headers[string(bytes.ToLower(ss[0]))] = string(bytes.ToLower(ss[1]))
+
+													last_header_end_pos = l + 3
+
+												}
+
+												// reset test string
+												vv = make([]byte, 0)
+											}
+
 										}
 
 									}
 
 								}
 
+								//fmt.Printf("nb_headers: %+v\n", nb_headers)
+								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
+
+								// remove the headers from nb
+								nb = nb[last_header_end_pos:len(nb)]
+
+							} else {
+
+								// there is only body content, add it to nb
+								//fmt.Println("email body does not have boundaries")
+								for {
+
+									if (i >= len(smtp_data)) {
+										break
+									}
+
+									nb = append(nb, smtp_data[i])
+
+									i = i + 1
+
+								}
+
+								// remove the end of body text
+								// if it was received
+								if (len(nb) >= 3) {
+									if (nb[len(nb)-3] == 46 && nb[len(nb)-2] == 13 && nb[len(nb)-1] == 10) {
+										// last 3 characters exist and are
+										// 46 13 10
+										// . \r \n
+										//fmt.Println(nb[len(nb)-3], nb[len(nb)-2], nb[len(nb)-1])
+										nb = nb[:len(nb)-3]
+									}
+								}
+
 							}
-
-							//fmt.Printf("nb_headers: %+v\n", nb_headers)
-							//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
-
-							// remove the headers from nb
-							nb = nb[last_header_end_pos:len(nb)]
 
 							//fmt.Printf("##NB##%s##ENDNB##\n", nb)
 
@@ -544,12 +595,14 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 							//fmt.Printf("next character after \r\n in this header: %s\n", smtp_data[i+1])
 							if (smtp_data[i+1] == []byte(" ")[0] || smtp_data[i+1] == []byte("\t")[0]) {
 								// continue adding to this header, without resetting v
+								//fmt.Println("Header is continued on another line")
 								continue
 							}
 						}
 
 						if (len(v) > 0) {
-							// check if this is a header
+							// check if this line is a header
+							//fmt.Println("testing if line is a header")
 
 							ss := bytes.Split(v, []byte(":"))
 							for ssc := range ss {
@@ -578,7 +631,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										// set boundary to the original value in ss[1] because that's what is in the content
 										bbb := ss[1][bb + len("boundary=\""):len(ss[1])]
 										boundary = string(bytes.Trim(bbb, "\""))
-										//fmt.Printf("boundary: %s\n", boundary)
+										fmt.Printf("boundary: %s\n", boundary)
 									}
 								}
 
