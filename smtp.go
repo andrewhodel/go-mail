@@ -429,7 +429,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 				// validate DKIM without the \r\n.\r\n
 				smtp_data = smtp_data[0:data_block_end]
 				dkim_status, dkim_err := dkim.Verify(&smtp_data)
-				fmt.Println("dkim", dkim_status, dkim_err)
+				fmt.Println("dkim, 1==valid:", dkim_status, dkim_err)
 
 				boundary := ""
 
