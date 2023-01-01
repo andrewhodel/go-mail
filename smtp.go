@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net"
 	"bytes"
+	"strings"
 	"strconv"
 	"io"
 	"io/ioutil"
 	"encoding/json"
+	"encoding/hex"
+	"encoding/base64"
 	"mime/quotedprintable"
 	"os"
 	"github.com/andrewhodel/go-ip-ac"
@@ -70,6 +73,7 @@ func main() {
 	}, func(headers map[string]string) bool {
 
 		// HEADERS
+		// you can use smtpParseTags() to parse strings with key=value; parts into a map[string]string
 		fmt.Println("headers")
 		for h := range headers {
 			fmt.Println(h, headers[h])
@@ -98,6 +102,76 @@ func main() {
 		}
 
 	})
+
+}
+
+func smtpParseTags(b []byte) map[string]string {
+
+	// converts "   a=asdf;  b=afsdf" to
+	// v["a"] = "asdf"
+	// v["b"] = "afsdf"
+
+	var tags = make(map[string]string, 0)
+
+	var tag_found = false
+	var tag []byte
+	var value []byte
+	i := 0
+	for {
+
+		if (i == len(b)) {
+			break
+		}
+
+		if (tag_found == true) {
+
+			// add to the value
+
+			if (b[i] == ';' || i == len(b)-1) {
+				// value end or end of data found
+
+				if (b[i] != ';') {
+					// last character is part of the value
+					value = append(value, b[i])
+				}
+
+				//fmt.Println("tag", string(tag), string(value))
+
+				// add the tag to tags
+				tags[string(tag)] = string(value)
+
+				tag_found = false
+				tag = nil
+				value = nil
+				i = i + 1
+				continue
+			} else {
+				value = append(value, b[i])
+			}
+
+		} else {
+
+			// add to the tag
+
+			if (b[i] == '=') {
+				// separator found
+				tag_found = true
+				i = i + 1
+				continue
+			} else {
+				// do not add tabs or spaces in the tag name
+				if (b[i] != 9 && b[i] != ' ') {
+					tag = append(tag, b[i])
+				}
+			}
+
+		}
+
+		i = i + 1
+
+	}
+
+	return tags
 
 }
 
@@ -361,6 +435,9 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 				// decode quoted-printable body parts
 				var decode_qp = false
+
+				// limit the number of DKIM lookups
+				var dkim_lookups = 0
 
 				v := make([]byte, 0)
 				i := -1
@@ -638,7 +715,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 								// put all the rest of the parts back together for the header value
 								header_value := bytes.Join(ss, []byte(":"))
 
-								fmt.Printf("smtp data header: %s: %s\n", header_name, header_value)
+								//fmt.Printf("smtp data header: %s: %s\n", header_name, header_value)
 
 								// add header
 								headers[string(header_name)] = string(header_value)
@@ -663,22 +740,86 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									// lines ending with =\r\n need to remove =\r\n
 									//fmt.Println("decoding content-transfer-encoding", string(header_value))
 									decode_qp = true
-								} else if (string(header_name) == "dkim-signature") {
+								} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3) {
+
+									// only allow 3 DKIM lookups to prevent a sending client from making the server perform many DNS requests
+									fmt.Println("\nDKIM Validation")
+
 									// validate DKIM using the 6 required fields
 									// v, a, d, s, bh, b
 									// and possibly the optional field
 									// l
+									var hp = smtpParseTags(header_value)
 
-									// v= is the version
-									// a= is the signing algorithm
-									// d= is the domain
-									// s= is the selector (subdomain)
-									// make a TXT dns query to selector._domainkey.domain to get the key
+									if (hp["v"] == "" || hp["a"] == "" || hp["d"] == "" || hp["s"] == "" || hp["bh"] == "" || hp["b"] == "") {
+										fmt.Println("incomplete dkim header")
+									} else {
 
-									// the DNS query returns a string
-									// the p= value in the DNS response is the public key that is used to validate the bh and b fields
-									// bh= is the body hash, if the l= field exists it specifies the length of the body that was hashed
-									// b= is the signature of the headers and body
+										// v= is the version
+										// a= is the signing algorithm
+										// d= is the domain
+										// s= is the selector (subdomain)
+										// make a TXT dns query to selector._domainkey.domain to get the key
+										var query_domain = hp["s"] + "._domainkey." + hp["d"]
+										fmt.Println("DKIM DNS Query TXT:", query_domain)
+
+										// keep track of the number of dkim lookups
+										dkim_lookups = dkim_lookups + 1
+
+										l_txts, l_err := net.LookupTXT(query_domain)
+										if (l_err == nil) {
+
+											var p_value = ""
+											for t := range l_txts {
+												// get the last non empty p= value in the string results
+												var pp = smtpParseTags([]byte(l_txts[t]))
+												if (pp["p"] != "") {
+													p_value = pp["p"]
+												}
+											}
+
+											fmt.Println("TXT Response base64 p=", p_value)
+
+											// replace whitespace in b= and bh=
+											// space, tab, \r and \n
+											hp["b"] = strings.ReplaceAll(hp["b"], " ", "")
+											hp["b"] = strings.ReplaceAll(hp["b"], string(9), "")
+											hp["b"] = strings.ReplaceAll(hp["b"], string(10), "")
+											hp["b"] = strings.ReplaceAll(hp["b"], string(13), "")
+											hp["bh"] = strings.ReplaceAll(hp["bh"], " ", "")
+											hp["bh"] = strings.ReplaceAll(hp["bh"], string(9), "")
+											hp["bh"] = strings.ReplaceAll(hp["bh"], string(10), "")
+											hp["bh"] = strings.ReplaceAll(hp["bh"], string(13), "")
+											fmt.Println("signature base64 b=", hp["b"])
+											fmt.Println("body hash base64 bh=", hp["bh"])
+											fmt.Println("DKIM signing algorithm:", hp["a"])
+
+											// the DNS query returns a string
+											// the p= value in the DNS response is the public key that is used to validate the bh and b fields
+											// bh= is the body hash, if the l= field exists it specifies the length of the body that was hashed
+											// b= is the signature of the headers and body
+
+											// decode b= per base64
+											sig, sig_err := base64.StdEncoding.DecodeString(hp["b"])
+											if (sig_err == nil) {
+												// decode bh= per base64
+												body_hash, body_hash_err := base64.StdEncoding.DecodeString(hp["bh"])
+												if (body_hash_err == nil) {
+													fmt.Println("base64 decoded signature and body_hash from b= and bh=")
+													fmt.Println("sig:", hex.EncodeToString(sig))
+													fmt.Println("body_hash:", hex.EncodeToString(body_hash))
+
+												} else {
+													fmt.Println("base64 error decoding body_hash from bh=", body_hash_err)
+												}
+											} else {
+												fmt.Println("base64 error decoding sig from b=", sig_err)
+											}
+
+
+										}
+
+									}
 
 								}
 
