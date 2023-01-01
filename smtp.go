@@ -70,7 +70,10 @@ func main() {
 	}, func(headers map[string]string) bool {
 
 		// HEADERS
-		fmt.Println("headers", headers)
+		fmt.Println("headers")
+		for h := range headers {
+			fmt.Println(h, headers[h])
+		}
 
 		// return true if allowed, false if not
 		return true
@@ -347,8 +350,8 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 			if (data_block_end > -1) {
 
-				//fmt.Printf("smtp parse_data: (%d)\n######\n%s\n######\n", len(smtp_data), smtp_data)
-				//fmt.Printf("<CR><LF>.<CR><LF> found at: %d of %d\n", data_block_end, len(smtp_data))
+				fmt.Printf("smtp parse_data: (%d)\n######\n%s\n######\n", len(smtp_data), smtp_data)
+				fmt.Printf("<CR><LF>.<CR><LF> found at: %d of %d\n", data_block_end, len(smtp_data))
 
 				boundary := ""
 
@@ -610,7 +613,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 							//fmt.Printf("next character after \r\n in this header: %s\n", smtp_data[i+1])
 							if (smtp_data[i+1] == []byte(" ")[0] || smtp_data[i+1] == []byte("\t")[0]) {
 								// continue adding to this header, without resetting v
-								//fmt.Println("Header is continued on another line")
+								//fmt.Println("Header is continued on another line:", string(v))
 								continue
 							}
 						}
@@ -627,34 +630,56 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 							if (len(ss) > 1) {
 
-								ss[0] = bytes.ToLower(ss[0])
-								all_lower_val := bytes.ToLower(ss[1])
+								// ss[0] is the header name, store it in lowercase
+								header_name := bytes.ToLower(ss[0])
+								// remove the header name from the ss slice
+								ss = ss[1:len(ss)]
 
-								//fmt.Printf("smtp data header: %s: %s\n", ss[0], ss[1])
+								// put all the rest of the parts back together for the header value
+								header_value := bytes.Join(ss, []byte(":"))
+
+								fmt.Printf("smtp data header: %s: %s\n", header_name, header_value)
 
 								// add header
-								headers[string(ss[0])] = string(all_lower_val)
+								headers[string(header_name)] = string(header_value)
 
-								if (string(ss[0]) == "content-type") {
+								if (string(header_name) == "content-type") {
 									// add boundary from content-type
 
-									// use all_lower val to find the string boundary, because it may be spelled bOUndary or any other way
-									bb := bytes.Index(all_lower_val, []byte("boundary=\""))
+									// find the string boundary in lower case, because it may be spelled bOUndary or any other way
+									bb := bytes.Index(bytes.ToLower(header_value), []byte("boundary=\""))
 
-									//fmt.Printf("boundary=\" found at: %d in: %s\n", bb, all_lower_val)
+									//fmt.Printf("boundary=\" found at: %d in: %s\n", bb, header_value)
 
 									if (bb > -1) {
-										// set boundary to the original value in ss[1] because that's what is in the content
-										bbb := ss[1][bb + len("boundary=\""):len(ss[1])]
+										// set boundary to the original header value because that's what is in the email body
+										bbb := header_value[bb + len("boundary=\""):len(header_value)]
 										boundary = string(bytes.Trim(bbb, "\""))
-										fmt.Printf("boundary: %s\n", boundary)
+										//fmt.Printf("boundary: %s\n", boundary)
 									}
 
-								} else if (string(ss[0]) == "content-transfer-encoding" && string(all_lower_val) == "quoted-printable") {
+								} else if (string(header_name) == "content-transfer-encoding" && string(bytes.ToLower(header_value)) == "quoted-printable") {
 									// if content-transfer-encoding is quoted-printable
 									// lines ending with =\r\n need to remove =\r\n
-									//fmt.Println("decoding content-transfer-encoding", string(all_lower_val))
+									//fmt.Println("decoding content-transfer-encoding", string(header_value))
 									decode_qp = true
+								} else if (string(header_name) == "dkim-signature") {
+									// validate DKIM using the 6 required fields
+									// v, a, d, s, bh, b
+									// and possibly the optional field
+									// l
+
+									// v= is the version
+									// a= is the signing algorithm
+									// d= is the domain
+									// s= is the selector (subdomain)
+									// make a TXT dns query to selector._domainkey.domain to get the key
+
+									// the DNS query returns a string
+									// the p= value in the DNS response is the public key that is used to validate the bh and b fields
+									// bh= is the body hash, if the l= field exists it specifies the length of the body that was hashed
+									// b= is the signature of the headers and body
+
 								}
 
 							}
