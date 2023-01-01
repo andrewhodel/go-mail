@@ -11,11 +11,10 @@ import (
 	"io"
 	"io/ioutil"
 	"encoding/json"
-	"encoding/hex"
-	"encoding/base64"
 	"mime/quotedprintable"
 	"os"
 	"github.com/andrewhodel/go-ip-ac"
+	dkim "github.com/toorop/go-dkim"
 )
 
 type Config struct {
@@ -424,8 +423,13 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 			if (data_block_end > -1) {
 
-				fmt.Printf("smtp parse_data: (%d)\n######\n%s\n######\n", len(smtp_data), smtp_data)
+				fmt.Printf("smtp parse_data: (%d)\n######\n%s\n######\n", len(smtp_data), smtp_data[0:data_block_end])
 				fmt.Printf("<CR><LF>.<CR><LF> found at: %d of %d\n", data_block_end, len(smtp_data))
+
+				// validate DKIM without the \r\n.\r\n
+				smtp_data = smtp_data[0:data_block_end]
+				dkim_status, dkim_err := dkim.Verify(&smtp_data)
+				fmt.Println("dkim", dkim_status, dkim_err)
 
 				boundary := ""
 
@@ -798,24 +802,6 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 											// the p= value in the DNS response is the public key that is used to validate the bh and b fields
 											// bh= is the body hash, if the l= field exists it specifies the length of the body that was hashed
 											// b= is the signature of the headers and body
-
-											// decode b= per base64
-											sig, sig_err := base64.StdEncoding.DecodeString(hp["b"])
-											if (sig_err == nil) {
-												// decode bh= per base64
-												body_hash, body_hash_err := base64.StdEncoding.DecodeString(hp["bh"])
-												if (body_hash_err == nil) {
-													fmt.Println("base64 decoded signature and body_hash from b= and bh=")
-													fmt.Println("sig:", hex.EncodeToString(sig))
-													fmt.Println("body_hash:", hex.EncodeToString(body_hash))
-
-												} else {
-													fmt.Println("base64 error decoding body_hash from bh=", body_hash_err)
-												}
-											} else {
-												fmt.Println("base64 error decoding sig from b=", sig_err)
-											}
-
 
 										}
 
