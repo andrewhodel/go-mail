@@ -519,6 +519,20 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 									/*
 									rfc6376 - DKIM
+
+									3.5.  The DKIM-Signature Header Field
+									c= Message canonicalization (plain-text; OPTIONAL, default is
+									"simple/simple").  This tag informs the Verifier of the type of
+									canonicalization used to prepare the message for signing.  It
+									consists of two names separated by a "slash" (%d47) character,
+									corresponding to the header and body canonicalization algorithms,
+									respectively.  These algorithms are described in Section 3.4.  If
+									only one algorithm is named, that algorithm is used for the header
+									and "simple" is used for the body.  For example, "c=relaxed" is
+									treated the same as "c=relaxed/simple".
+
+										In better explanation, `header_canon_algorith/body_canon_algorithm` with `simple/simple` being default
+
 									3.4.3.  The "simple" Body Canonicalization Algorithm
 									The "simple" body canonicalization algorithm ignores all empty lines
 									at the end of the message body.  An empty line is a line of zero
@@ -528,17 +542,41 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									"simple" body canonicalization algorithm converts "*CRLF" at the end
 									of the body to a single "CRLF".
 
-									In better explanation, remove \r\n.\r\n, then remove all \r\n at the end then add \r\n (\r\n is CRLF)
+										In better explanation, remove \r\n.\r\n, then remove all \r\n at the end then add \r\n (\r\n is CRLF)
 									*/
+
+									var canon_algos = strings.Split(dkim_hp["c"], "/")
+									if (len(canon_algos) == 0) {
+										// is no algorithms are defined, use simple for the header and body
+										canon_algos = append(canon_algos, "simple")
+										canon_algos = append(canon_algos, "simple")
+									} else if (len(canon_algos) == 1) {
+										// if only one algorithm is defined, it is used for the header and simple is used for the body
+										canon_algos = append(canon_algos, "simple")
+									}
 
 									var canonicalized_body []byte
 									var canonicalized_body_hash_base64 string
 
-									if (strings.Index(dkim_hp["c"], "simple") > -1) {
+									if (canon_algos[1] == "simple") {
 
-										// simple has priority
+										// simple body canonicalization
 
-										canonicalized_body = bytes.TrimRight(smtp_data[i:data_block_end], "\r\n")
+										if (dkim_hp["l"] != "") {
+											// length specified
+											optional_body_length, optional_body_length_err := strconv.ParseInt(dkim_hp["l"], 10, 64)
+											if (optional_body_length >= 0 && int(optional_body_length) <= data_block_end && optional_body_length_err == nil) {
+												// valid length
+												canonicalized_body = bytes.TrimRight(smtp_data[i:data_block_end], "\r\n")
+											} else {
+												// invalid optional body length
+												// dkim will not validate unless the bh= tag hash was created with an empty canonicalized body
+											}
+										} else {
+											// no length specified
+											canonicalized_body = bytes.TrimRight(smtp_data[i:data_block_end], "\r\n")
+										}
+
 										canonicalized_body = append(canonicalized_body, '\r')
 										canonicalized_body = append(canonicalized_body, '\n')
 										var canonicalized_body_sha256_sum = sha256.Sum256(canonicalized_body)
@@ -547,11 +585,12 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										for b := range canonicalized_body_sha256_sum {
 											formatted_canonicalized_body_sha256_sum = append(formatted_canonicalized_body_sha256_sum, canonicalized_body_sha256_sum[b])
 										}
+
 										canonicalized_body_hash_base64 = base64.StdEncoding.EncodeToString(formatted_canonicalized_body_sha256_sum)
 
 									} else if (strings.Index(dkim_hp["c"], "relaxed") > -1) {
 
-										// relaxed
+										// relaxed body canonicalization
 
 									}
 
@@ -560,7 +599,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										// body hash in the headers is the same as the calculated body hash
 										// valid
 
-										//fmt.Println("######INNER CANON BODYHASH IN BASE64######", canonicalized_body_hash_base64, "######")
+										fmt.Println("DKIM bh= tag matches hash of body content with length optionally specified by l= tag")
 
 										// the DKIM public key of the sending domain is in p_value
 
