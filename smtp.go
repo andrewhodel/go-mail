@@ -496,77 +496,81 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 								fmt.Println("DKIM signing algorithm:", dkim_hp["a"])
 
-								// finish parsing the DKIM headers
-								// replace whitespace in b= and bh=
-								// space, tab, \r and \n
-								dkim_hp["b"] = strings.ReplaceAll(dkim_hp["b"], " ", "")
-								dkim_hp["b"] = strings.ReplaceAll(dkim_hp["b"], string(9), "")
-								dkim_hp["b"] = strings.ReplaceAll(dkim_hp["b"], string(10), "")
-								dkim_hp["b"] = strings.ReplaceAll(dkim_hp["b"], string(13), "")
-								dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], " ", "")
-								dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], string(9), "")
-								dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], string(10), "")
-								dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], string(13), "")
+								if (dkim_hp["a"] != "rsa-sha256") {
+									fmt.Println("unsupported DKIM signing algorithm", dkim_hp["a"])
+								} else {
 
-								// bh= is the body hash, if the l= field exists it specifies the length of the body that was hashed
-								fmt.Println("body hash base64 bh=", dkim_hp["bh"])
+									// finish parsing the DKIM headers
+									// replace whitespace in b= and bh=
+									// space, tab, \r and \n
+									dkim_hp["b"] = strings.ReplaceAll(dkim_hp["b"], " ", "")
+									dkim_hp["b"] = strings.ReplaceAll(dkim_hp["b"], string(9), "")
+									dkim_hp["b"] = strings.ReplaceAll(dkim_hp["b"], string(10), "")
+									dkim_hp["b"] = strings.ReplaceAll(dkim_hp["b"], string(13), "")
+									dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], " ", "")
+									dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], string(9), "")
+									dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], string(10), "")
+									dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], string(13), "")
 
-								// make sure the bh tag from the DKIM headers is the same as the actual body hash (only the length specified if l= exists)
+									// bh= is the body hash, if the l= field exists it specifies the length of the body that was hashed
+									fmt.Println("body hash base64 bh=", dkim_hp["bh"])
 
-								/*
-								rfc6376 - DKIM
-								3.4.3.  The "simple" Body Canonicalization Algorithm
-								The "simple" body canonicalization algorithm ignores all empty lines
-								at the end of the message body.  An empty line is a line of zero
-								length after removal of the line terminator.  If there is no body or
-								no trailing CRLF on the message body, a CRLF is added.  It makes no
-								other changes to the message body.  In more formal terms, the
-								"simple" body canonicalization algorithm converts "*CRLF" at the end
-								of the body to a single "CRLF".
+									// make sure the bh tag from the DKIM headers is the same as the actual body hash (only the length specified if l= exists)
 
-								In better explanation, remove \r\n.\r\n, then remove all \r\n at the end then add \r\n (\r\n is CRLF)
-								*/
+									/*
+									rfc6376 - DKIM
+									3.4.3.  The "simple" Body Canonicalization Algorithm
+									The "simple" body canonicalization algorithm ignores all empty lines
+									at the end of the message body.  An empty line is a line of zero
+									length after removal of the line terminator.  If there is no body or
+									no trailing CRLF on the message body, a CRLF is added.  It makes no
+									other changes to the message body.  In more formal terms, the
+									"simple" body canonicalization algorithm converts "*CRLF" at the end
+									of the body to a single "CRLF".
 
-								var canonicalized_body []byte
-								var canonicalized_body_hash_base64 string
+									In better explanation, remove \r\n.\r\n, then remove all \r\n at the end then add \r\n (\r\n is CRLF)
+									*/
 
-								if (strings.Index(dkim_hp["c"], "simple") > -1) {
+									var canonicalized_body []byte
+									var canonicalized_body_hash_base64 string
 
-									// simple has priority
+									if (strings.Index(dkim_hp["c"], "simple") > -1) {
 
-									canonicalized_body = bytes.TrimRight(smtp_data[i:data_block_end], "\r\n")
-									canonicalized_body = append(canonicalized_body, '\r')
-									canonicalized_body = append(canonicalized_body, '\n')
-									var canonicalized_body_sha256_sum = sha256.Sum256(canonicalized_body)
-									// convert [32]byte to []byte
-									var formatted_canonicalized_body_sha256_sum []byte
-									for b := range canonicalized_body_sha256_sum {
-										formatted_canonicalized_body_sha256_sum = append(formatted_canonicalized_body_sha256_sum, canonicalized_body_sha256_sum[b])
+										// simple has priority
+
+										canonicalized_body = bytes.TrimRight(smtp_data[i:data_block_end], "\r\n")
+										canonicalized_body = append(canonicalized_body, '\r')
+										canonicalized_body = append(canonicalized_body, '\n')
+										var canonicalized_body_sha256_sum = sha256.Sum256(canonicalized_body)
+										// convert [32]byte to []byte
+										var formatted_canonicalized_body_sha256_sum []byte
+										for b := range canonicalized_body_sha256_sum {
+											formatted_canonicalized_body_sha256_sum = append(formatted_canonicalized_body_sha256_sum, canonicalized_body_sha256_sum[b])
+										}
+										canonicalized_body_hash_base64 = base64.StdEncoding.EncodeToString(formatted_canonicalized_body_sha256_sum)
+
+									} else if (strings.Index(dkim_hp["c"], "relaxed") > -1) {
+
+										// relaxed
+
 									}
-									canonicalized_body_hash_base64 = base64.StdEncoding.EncodeToString(formatted_canonicalized_body_sha256_sum)
 
-								} else if (strings.Index(dkim_hp["c"], "relaxed") > -1) {
+									if (canonicalized_body_hash_base64 == dkim_hp["bh"]) {
 
-									// relaxed
+										// body hash in the headers is the same as the calculated body hash
+										// valid
 
-								}
+										//fmt.Println("######INNER CANON BODYHASH IN BASE64######", canonicalized_body_hash_base64, "######")
 
-								if (canonicalized_body_hash_base64 == dkim_hp["bh"]) {
+										// the DKIM public key of the sending domain is in p_value
 
-									// body hash in the headers is the same as the calculated body hash
-									// valid
+										// b= is the signature of the headers and body
+										fmt.Println("signature base64 b=", dkim_hp["b"])
 
-									//fmt.Println("######INNER CANON BODYHASH IN BASE64######", canonicalized_body_hash_base64, "######")
+										// the dkim data is valid
+										//dkim_valid = true
 
-									// the DNS query returns a string
-									// the p= value in the DNS response is the public key that is used to validate the bh and b fields
-									// it is in p_value
-
-									// b= is the signature of the headers and body
-									fmt.Println("signature base64 b=", dkim_hp["b"])
-
-									// the dkim data is valid
-									//dkim_valid = true
+									}
 
 								}
 
@@ -845,10 +849,15 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										fmt.Println("incomplete dkim header")
 									} else {
 
+										// required DKIM header tags
 										// v= is the version
 										// a= is the signing algorithm
 										// d= is the domain
 										// s= is the selector (subdomain)
+
+										// get the DKIM public key from DNS
+										// it should be looked up from many physical locations on the planet
+										// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, that would make SMTP perfect)
 										// make a TXT dns query to selector._domainkey.domain to get the key
 										var query_domain = dkim_hp["s"] + "._domainkey." + dkim_hp["d"]
 										fmt.Println("DKIM DNS Query TXT:", query_domain)
