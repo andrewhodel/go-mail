@@ -110,13 +110,16 @@ func main() {
 
 }
 
-func smtpParseTags(b []byte) map[string]string {
+func smtpParseTags(b []byte) (map[string]string, []string) {
 
 	// converts "   a=asdf;  b=afsdf" to
 	// v["a"] = "asdf"
 	// v["b"] = "afsdf"
 
+	// all the values, out of order
 	var tags = make(map[string]string, 0)
+	// the order of the tags
+	var order = make([]string, 0)
 
 	var tag_found = false
 	var tag []byte
@@ -144,6 +147,7 @@ func smtpParseTags(b []byte) map[string]string {
 
 				// add the tag to tags
 				tags[string(tag)] = string(value)
+				order = append(order, string(tag))
 
 				tag_found = false
 				tag = nil
@@ -176,7 +180,7 @@ func smtpParseTags(b []byte) map[string]string {
 
 	}
 
-	return tags
+	return tags, order
 
 }
 
@@ -627,24 +631,67 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										// b= is the signature of the headers and body
 										fmt.Println("signature base64 b=", dkim_hp["b"])
 
+										// get the public key as an x509 object
+										var dkim_public_x509_key rsa.PublicKey
+										un64, un64_err := base64.StdEncoding.DecodeString(dkim_public_key)
+										if (un64_err == nil) {
+											pk, pk_err := x509.ParsePKIXPublicKey(un64)
+											if (pk_err == nil) {
+												if pk, ok := pk.(*rsa.PublicKey); ok {
+													dkim_public_x509_key = *pk
+												}
+											}
+										}
+
+										fmt.Println("dkim_public_x509_key", dkim_public_x509_key)
+
+										// create the canonicalized header string based on the field specified in the h= tag
+										var canon_h = strings.Split(dkim_hp["h"], ":")
+										fmt.Println("header fields to be canonicalized", canon_h)
+
+										var canonicalized_header_string = ""
+
+										if (canon_algos[0] == "simple") {
+
+											// simple header canonicalization
+
+										} else if (canon_algos[0] == "relaxed") {
+
+											// relaxed header canonicalization
+
+											for h := range canon_h {
+												var h_name = strings.ToLower(canon_h[h])
+												fmt.Println(h_name, headers[h_name])
+												// add each header specified in the h= tag with the valid format
+												canonicalized_header_string = canonicalized_header_string + h_name + ":" + headers[h_name] + "\r\n"
+											}
+
+											// add the DKIM header that was used
+											// with no newlines and an empty b= tag and a space between each
+											// in the original header's order
+											dkim_tags, dkim_order := smtpParseTags([]byte(headers["dkim-signature"]))
+											var canonicalized_dkim_header_string = ""
+
+											for dh := range dkim_order {
+												var tag_name = dkim_order[dh]
+												if (tag_name != "b") {
+													canonicalized_dkim_header_string = canonicalized_dkim_header_string + tag_name + "=" + dkim_tags[tag_name] + "; "
+												}
+											}
+
+											// add the empty b= at the end with no ; at the end
+											canonicalized_dkim_header_string = canonicalized_dkim_header_string + "b=";
+
+											canonicalized_header_string = canonicalized_header_string + "dkim-signature:" + canonicalized_dkim_header_string
+
+										}
+
+										fmt.Println("canonicalized_header_string", sha256.Sum256([]byte(canonicalized_header_string)), canonicalized_header_string)
+
 										// the dkim data is valid
 										//dkim_valid = true
 
 									}
-
-									// get the public key as an x509 object
-									var dkim_public_x509_key rsa.PublicKey
-									un64, un64_err := base64.StdEncoding.DecodeString(dkim_public_key)
-									if (un64_err == nil) {
-										pk, pk_err := x509.ParsePKIXPublicKey(un64)
-										if (pk_err == nil) {
-											if pk, ok := pk.(*rsa.PublicKey); ok {
-												dkim_public_x509_key = *pk
-											}
-										}
-									}
-
-									fmt.Println("dkim_public_x509_key", dkim_public_x509_key)
 
 								}
 
@@ -885,8 +932,10 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 								//fmt.Printf("smtp data header: %s: %s\n", header_name, header_value)
 
-								// add header
-								headers[string(header_name)] = string(header_value)
+								// add header if not DKIM
+								if (string(header_name) != "dkim-signature") {
+									headers[string(header_name)] = string(header_value)
+								}
 
 								if (string(header_name) == "content-type") {
 									// add boundary from content-type
@@ -919,7 +968,8 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									// v, a, d, s, bh, b
 									// and possibly the optional field
 									// l
-									dkim_hp = smtpParseTags(header_value)
+									temp, _ := smtpParseTags(header_value)
+									dkim_hp = temp
 
 									if (dkim_hp["v"] == "" || dkim_hp["a"] == "" || dkim_hp["d"] == "" || dkim_hp["s"] == "" || dkim_hp["bh"] == "" || dkim_hp["b"] == "") {
 										fmt.Println("incomplete dkim header")
@@ -946,7 +996,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 											for t := range l_txts {
 												// get the last non empty p= value in the string results
-												var pp = smtpParseTags([]byte(l_txts[t]))
+												pp, _ := smtpParseTags([]byte(l_txts[t]))
 												if (pp["p"] != "") {
 													dkim_public_key = pp["p"]
 												}
@@ -954,6 +1004,9 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 											fmt.Println("TXT Response base64 p=", dkim_public_key)
 											validate_dkim = true
+
+											// add the dkim-signature header that was used to headers
+											headers[string(header_name)] = string(header_value)
 
 										}
 
