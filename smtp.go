@@ -445,6 +445,8 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 				// parse the headers
 				headers := make(map[string]string)
+				// keep an ordered list also
+				real_headers := make([]string, 0)
 				var headers_sent = false
 
 				// decode quoted-printable body parts
@@ -697,6 +699,17 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 										// create the canonicalized header string based on the field specified in the h= tag
 										var canon_h = strings.Split(dkim_hp["h"], ":")
+
+										// remove duplicates
+										for d := range canon_h {
+											for dd := range canon_h {
+												if (canon_h[dd] == canon_h[d] && dd != d) {
+													// duplicate
+													canon_h[dd] = ""
+												}
+											}
+										}
+
 										fmt.Println("header fields to be canonicalized", canon_h)
 
 										var canonicalized_header_string = ""
@@ -711,15 +724,28 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 											for h := range canon_h {
 												var h_name = strings.ToLower(canon_h[h])
-												fmt.Println(h_name, headers[h_name])
-												// add each header specified in the h= tag with the valid format
-												canonicalized_header_string = canonicalized_header_string + h_name + ":" + headers[h_name] + "\r\n"
+
+												var is_real = false
+												for r := range real_headers {
+													if (real_headers[r] == h_name) {
+														is_real = true
+														break
+													}
+												}
+
+												if (is_real == true) {
+													// this header actually exists
+													fmt.Println(h_name, headers[h_name])
+													// add each header specified in the h= tag with the valid format
+													canonicalized_header_string = canonicalized_header_string + h_name + ":" + headers[h_name] + "\r\n"
+												}
 											}
 
 											// add the DKIM header that was used
-											// with no newlines and an empty b= tag and a space between each
+											// with no newlines, an empty b= tag and a space for each wsp sequence
 											// in the original header's order
 											dkim_tags, dkim_order := smtpParseTags([]byte(headers["dkim-signature"]))
+											fmt.Println("######", headers["dkim-signature"], dkim_tags)
 											var canonicalized_dkim_header_string = ""
 
 											for dh := range dkim_order {
@@ -736,7 +762,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 										}
 
-										fmt.Println("canonicalized_header_string", sha256.Sum256([]byte(canonicalized_header_string)), canonicalized_header_string)
+										fmt.Println("canonicalized_header_string", sha256.Sum256([]byte(canonicalized_header_string)), []byte(canonicalized_header_string), canonicalized_header_string)
 
 										// the dkim data is valid
 										//dkim_valid = true
@@ -962,29 +988,38 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 						if (len(v) > 0) {
 							// check if this line is a header
-							//fmt.Println("testing if line is a header")
+							//fmt.Println("testing if line is a header", string(v))
 
 							ss := bytes.Split(v, []byte(":"))
-							for ssc := range ss {
-								// trim spaces
-								ss[ssc] = bytes.Trim(ss[ssc], " ")
-							}
 
 							if (len(ss) > 1) {
 
 								// ss[0] is the header name, store it in lowercase
 								header_name := bytes.ToLower(ss[0])
+								// remove all spaces
+								header_name = bytes.Trim(header_name, " ")
 								// remove the header name from the ss slice
 								ss = ss[1:len(ss)]
 
 								// put all the rest of the parts back together for the header value
 								header_value := bytes.Join(ss, []byte(":"))
 
+								// if part of the header_value is 8 spaces or a tab, remove that
+								if (bytes.Index(header_value, []byte("        ")) > -1) {
+									header_value = bytes.ReplaceAll(header_value, []byte("        "), []byte(""))
+								} else if (bytes.Index(header_value, []byte("\t")) > -1) {
+									header_value = bytes.ReplaceAll(header_value, []byte("\t"), []byte(""))
+								}
+
+								// if the first character is a space, remove that
+								header_value = bytes.TrimLeft(header_value, " ")
+
 								//fmt.Printf("smtp data header: %s: %s\n", header_name, header_value)
 
 								// add header if not DKIM
 								if (string(header_name) != "dkim-signature") {
 									headers[string(header_name)] = string(header_value)
+									real_headers = append(real_headers, string(header_name))
 								}
 
 								if (string(header_name) == "content-type") {
@@ -1057,6 +1092,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 											// add the dkim-signature header that was used to headers
 											headers[string(header_name)] = string(header_value)
+											real_headers = append(real_headers, string(header_name))
 
 										}
 
