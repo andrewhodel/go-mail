@@ -557,17 +557,6 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									treated the same as "c=relaxed/simple".
 
 										In better explanation, `header_canon_algorith/body_canon_algorithm` with `simple/simple` being default
-
-									3.4.3.  The "simple" Body Canonicalization Algorithm
-									The "simple" body canonicalization algorithm ignores all empty lines
-									at the end of the message body.  An empty line is a line of zero
-									length after removal of the line terminator.  If there is no body or
-									no trailing CRLF on the message body, a CRLF is added.  It makes no
-									other changes to the message body.  In more formal terms, the
-									"simple" body canonicalization algorithm converts "*CRLF" at the end
-									of the body to a single "CRLF".
-
-										In better explanation, remove \r\n.\r\n, then remove all \r\n at the end then add \r\n (\r\n is CRLF)
 									*/
 
 									var canon_algos = strings.Split(dkim_hp["c"], "/")
@@ -587,6 +576,19 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 										// simple body canonicalization
 
+										/*
+										3.4.3.  The "simple" Body Canonicalization Algorithm
+										The "simple" body canonicalization algorithm ignores all empty lines
+										at the end of the message body.  An empty line is a line of zero
+										length after removal of the line terminator.  If there is no body or
+										no trailing CRLF on the message body, a CRLF is added.  It makes no
+										other changes to the message body.  In more formal terms, the
+										"simple" body canonicalization algorithm converts "*CRLF" at the end
+										of the body to a single "CRLF".
+
+											In better explanation, remove \r\n.\r\n, then remove all \r\n at the end then add \r\n (\r\n is CRLF)
+										*/
+
 										if (dkim_hp["l"] != "") {
 											// length specified
 											optional_body_length, optional_body_length_err := strconv.ParseInt(dkim_hp["l"], 10, 64)
@@ -604,20 +606,68 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 										canonicalized_body = append(canonicalized_body, '\r')
 										canonicalized_body = append(canonicalized_body, '\n')
-										var canonicalized_body_sha256_sum = sha256.Sum256(canonicalized_body)
-										// convert [32]byte to []byte
-										var formatted_canonicalized_body_sha256_sum []byte
-										for b := range canonicalized_body_sha256_sum {
-											formatted_canonicalized_body_sha256_sum = append(formatted_canonicalized_body_sha256_sum, canonicalized_body_sha256_sum[b])
-										}
-
-										canonicalized_body_hash_base64 = base64.StdEncoding.EncodeToString(formatted_canonicalized_body_sha256_sum)
 
 									} else if (strings.Index(dkim_hp["c"], "relaxed") > -1) {
 
 										// relaxed body canonicalization
 
+										/*
+										3.4.4.  The "relaxed" Body Canonicalization Algorithm
+
+										   The "relaxed" body canonicalization algorithm MUST apply the
+										   following steps (a) and (b) in order:
+
+										   a.  Reduce whitespace:
+
+										       *  Ignore all whitespace at the end of lines.  Implementations
+											  MUST NOT remove the CRLF at the end of the line.
+
+										       *  Reduce all sequences of WSP within a line to a single SP
+											  character.
+
+										   b.  Ignore all empty lines at the end of the message body.  "Empty
+										       line" is defined in Section 3.4.3.  If the body is non-empty but
+										       does not end with a CRLF, a CRLF is added.  (For email, this is
+										       only possible when using extensions to SMTP or non-SMTP transport
+										       mechanisms.)
+
+										*/
+
+										canonicalized_body = smtp_data[i:data_block_end]
+
+										// replace sequences of spaces and tabs with a single space
+
+										// 3.4.4 step b
+										if (len(canonicalized_body) > 0) {
+											// the body is non-empty
+											if (len(canonicalized_body) >= 2) {
+												if (canonicalized_body[len(canonicalized_body)-2] != '\r' && canonicalized_body[len(canonicalized_body)-1] != '\n') {
+													// the body does not end with a CRLF
+													// add a CRLF
+													canonicalized_body = append(canonicalized_body, '\r')
+													canonicalized_body = append(canonicalized_body, '\n')
+
+												}
+											} else {
+												// the body is not long enough to end with a CRLF
+												// add a CRLF
+												canonicalized_body = append(canonicalized_body, '\r')
+												canonicalized_body = append(canonicalized_body, '\n')
+											}
+										}
+
 									}
+
+									// get the checksum from the canonicalized body
+									var canonicalized_body_sha256_sum = sha256.Sum256(canonicalized_body)
+									// convert [32]byte to []byte
+									var formatted_canonicalized_body_sha256_sum []byte
+									for b := range canonicalized_body_sha256_sum {
+										formatted_canonicalized_body_sha256_sum = append(formatted_canonicalized_body_sha256_sum, canonicalized_body_sha256_sum[b])
+									}
+
+									// as base64
+									canonicalized_body_hash_base64 = base64.StdEncoding.EncodeToString(formatted_canonicalized_body_sha256_sum)
 
 									if (canonicalized_body_hash_base64 == dkim_hp["bh"]) {
 
