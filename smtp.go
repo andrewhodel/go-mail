@@ -637,7 +637,19 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 										canonicalized_body = smtp_data[i:data_block_end]
 
-										// replace sequences of spaces and tabs with a single space
+										// replace wsp with a single space
+										for true {
+											if (bytes.Index(canonicalized_body, []byte("\t")) > -1) {
+												// replace all \t with space
+												canonicalized_body = bytes.ReplaceAll(canonicalized_body, []byte("\t"), []byte(" "))
+											} else if (bytes.Contains(canonicalized_body, []byte("  ")) == true) {
+												// replace "  " with space
+												canonicalized_body = bytes.Replace(canonicalized_body, []byte("  "), []byte(" "), 1)
+											} else {
+												// no more wsp characters
+												break
+											}
+										}
 
 										// 3.4.4 step b
 										if (len(canonicalized_body) > 0) {
