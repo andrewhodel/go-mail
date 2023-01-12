@@ -617,7 +617,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										canonicalized_body = append(canonicalized_body, '\r')
 										canonicalized_body = append(canonicalized_body, '\n')
 
-									} else if (strings.Index(dkim_hp["c"], "relaxed") > -1) {
+									} else if (canon_algos[1] == "relaxed") {
 
 										// relaxed body canonicalization
 
@@ -645,12 +645,25 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 										canonicalized_body = smtp_data[i:data_block_end]
 
-										// replace wsp with a single space
+										// remove whitespace at the end of lines
+										for true {
+											if (bytes.Index(canonicalized_body, []byte("\t\r\n")) > -1) {
+												// replace trn with rn
+												canonicalized_body = bytes.Replace(canonicalized_body, []byte("\t\r\n"), []byte("\r\n"), 1)
+											} else if (bytes.Index(canonicalized_body, []byte(" \r\n")) > -1) {
+												// replace nrn with rn
+												canonicalized_body = bytes.Replace(canonicalized_body, []byte(" \r\n"), []byte("\r\n"), 1)
+											} else {
+												break
+											}
+										}
+
+										// replace wsp sequences with a single space
 										for true {
 											if (bytes.Index(canonicalized_body, []byte("\t")) > -1) {
 												// replace all \t with space
 												canonicalized_body = bytes.ReplaceAll(canonicalized_body, []byte("\t"), []byte(" "))
-											} else if (bytes.Contains(canonicalized_body, []byte("  ")) == true) {
+											} else if (bytes.Index(canonicalized_body, []byte("  ")) > -1) {
 												// replace "  " with space
 												canonicalized_body = bytes.Replace(canonicalized_body, []byte("  "), []byte(" "), 1)
 											} else {
@@ -693,7 +706,12 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 									if (canonicalized_body_hash_base64 != dkim_hp["bh"]) {
 
+										/*
 										fmt.Println("DKIM canonicalized_body_hash_base64 does not equal the bh= tag value")
+										fmt.Println("canonicalization algorithms", canon_algos)
+										fmt.Println("bh=", dkim_hp["bh"])
+										fmt.Println("canonicalized_body_hash_base64", canonicalized_body_hash_base64)
+										*/
 
 									} else {
 
