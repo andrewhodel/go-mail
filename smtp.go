@@ -7,6 +7,8 @@ import (
 	"crypto/sha256"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto"
+	"hash"
 	"fmt"
 	"net"
 	"bytes"
@@ -19,7 +21,6 @@ import (
 	"mime/quotedprintable"
 	"os"
 	"github.com/andrewhodel/go-ip-ac"
-	dkim "github.com/toorop/go-dkim"
 )
 
 type Config struct {
@@ -302,7 +303,7 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 
 		conn.Write([]byte("250 OK\r\n"))
 
-		fmt.Println("RSET received, replied with 250")
+		//fmt.Println("RSET received, replied with 250")
 
 	} else if (bytes.Index(c, []byte("QUIT")) == 0) {
 
@@ -433,13 +434,11 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 			if (data_block_end > -1) {
 
-				fmt.Printf("smtp parse_data: (%d)\n######\n%s\n######\n", len(smtp_data), smtp_data[0:data_block_end])
-				fmt.Printf("<CR><LF>.<CR><LF> found at: %d of %d\n", data_block_end, len(smtp_data))
+				//fmt.Printf("smtp parse_data: (%d)\n######\n%s\n######\n", len(smtp_data), smtp_data[0:data_block_end])
+				//fmt.Printf("<CR><LF>.<CR><LF> found at: %d of %d\n", data_block_end, len(smtp_data))
 
 				// validate DKIM without the \r\n.\r\n
 				smtp_data = smtp_data[0:data_block_end]
-				dkim_status, dkim_err := dkim.Verify(&smtp_data)
-				fmt.Println("dkim, 1==valid:", dkim_status, dkim_err)
 
 				boundary := ""
 
@@ -504,7 +503,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 							if (validate_dkim == true) {
 
-								fmt.Println("DKIM signing algorithm:", dkim_hp["a"])
+								//fmt.Println("DKIM signing algorithm:", dkim_hp["a"])
 
 								var dkim_expired = false
 								if (dkim_hp["x"] != "") {
@@ -522,9 +521,9 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 								}
 
 								if (dkim_expired == true) {
-									fmt.Println("DKIM header is expired")
+									//fmt.Println("DKIM header is expired")
 								} else if (dkim_hp["a"] != "rsa-sha256") {
-									fmt.Println("unsupported DKIM signing algorithm", dkim_hp["a"])
+									//fmt.Println("unsupported DKIM signing algorithm", dkim_hp["a"])
 								} else {
 
 									// finish parsing the DKIM headers
@@ -540,7 +539,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], string(13), "")
 
 									// bh= is the body hash, if the l= field exists it specifies the length of the body that was hashed
-									fmt.Println("body hash base64 bh=", dkim_hp["bh"])
+									//fmt.Println("body hash base64 bh=", dkim_hp["bh"])
 
 									// make sure the bh tag from the DKIM headers is the same as the actual body hash (only the length specified if l= exists)
 
@@ -688,12 +687,12 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										// body hash in the headers is the same as the calculated body hash
 										// valid
 
-										fmt.Println("DKIM bh= tag matches hash of body content with length optionally specified by l= tag")
+										//fmt.Println("DKIM bh= tag matches hash of body content with length optionally specified by l= tag")
 
 										// the DKIM public key of the sending domain is in dkim_public_key
 
 										// b= is the signature of the headers and body
-										fmt.Println("signature base64 b=", dkim_hp["b"])
+										//fmt.Println("signature base64 b=", dkim_hp["b"])
 
 										// get the public key as an x509 object
 										var dkim_public_x509_key rsa.PublicKey
@@ -707,22 +706,22 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 											}
 										}
 
-										fmt.Println("dkim_public_x509_key", dkim_public_x509_key)
+										//fmt.Println("dkim_public_x509_key", dkim_public_x509_key)
 
 										// create the canonicalized header string based on the field specified in the h= tag
 										var canon_h = strings.Split(dkim_hp["h"], ":")
 
-										// remove duplicates
+										// empty duplicates
 										for d := range canon_h {
 											for dd := range canon_h {
 												if (canon_h[dd] == canon_h[d] && dd != d) {
-													// duplicate
+													// empty duplicate value
 													canon_h[dd] = ""
 												}
 											}
 										}
 
-										fmt.Println("header fields to be canonicalized", canon_h)
+										//fmt.Println("header fields to be canonicalized", canon_h)
 
 										var canonicalized_header_string = ""
 
@@ -746,8 +745,6 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 												}
 
 												if (is_real == true) {
-													// this header actually exists
-													fmt.Println(h_name, headers[h_name])
 													// add each header specified in the h= tag with the valid format
 													canonicalized_header_string = canonicalized_header_string + h_name + ":" + headers[h_name] + "\r\n"
 												}
@@ -757,7 +754,6 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 											// with no newlines, an empty b= tag and a space for each wsp sequence
 											// in the original header's order
 											dkim_tags, dkim_order := smtpParseTags([]byte(headers["dkim-signature"]))
-											fmt.Println("######", headers["dkim-signature"], dkim_tags)
 											var canonicalized_dkim_header_string = ""
 
 											for dh := range dkim_order {
@@ -774,10 +770,24 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 										}
 
-										fmt.Println("canonicalized_header_string", sha256.Sum256([]byte(canonicalized_header_string)), []byte(canonicalized_header_string), canonicalized_header_string)
+										//fmt.Println("canonicalized_header_string", sha256.Sum256([]byte(canonicalized_header_string)), []byte(canonicalized_header_string), canonicalized_header_string)
 
-										// the dkim data is valid
-										//dkim_valid = true
+										// verify the signature
+										var h1 hash.Hash
+										var h2 crypto.Hash
+										h1 = sha256.New()
+										h2 = crypto.SHA256
+
+										h1.Write([]byte(canonicalized_header_string))
+										sig, sig_err := base64.StdEncoding.DecodeString(dkim_hp["b"])
+										if (sig_err == nil) {
+											if (rsa.VerifyPKCS1v15(&dkim_public_x509_key, h2, h1.Sum(nil), sig) == nil) {
+
+												// the dkim data is valid
+												dkim_valid = true
+
+											}
+										}
 
 									}
 
@@ -1059,7 +1069,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									// the dkim_public_key has not been found yet
 
 									// only allow 3 DKIM lookups to prevent a sending client from making the server perform many DNS requests
-									fmt.Println("\nDKIM Validation")
+									//fmt.Println("\nDKIM Validation")
 
 									// validate DKIM using the 6 required fields
 									// v, a, d, s, bh, b
@@ -1069,7 +1079,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									dkim_hp = temp
 
 									if (dkim_hp["v"] == "" || dkim_hp["a"] == "" || dkim_hp["d"] == "" || dkim_hp["s"] == "" || dkim_hp["bh"] == "" || dkim_hp["b"] == "") {
-										fmt.Println("incomplete dkim header")
+										//fmt.Println("incomplete dkim header")
 									} else {
 
 										// required DKIM header tags
@@ -1083,7 +1093,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, that would make SMTP perfect)
 										// make a TXT dns query to selector._domainkey.domain to get the key
 										var query_domain = dkim_hp["s"] + "._domainkey." + dkim_hp["d"]
-										fmt.Println("DKIM DNS Query TXT:", query_domain)
+										//fmt.Println("DKIM DNS Query TXT:", query_domain)
 
 										// keep track of the number of dkim lookups
 										dkim_lookups = dkim_lookups + 1
@@ -1099,7 +1109,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 												}
 											}
 
-											fmt.Println("TXT Response base64 p=", dkim_public_key)
+											//fmt.Println("TXT Response base64 p=", dkim_public_key)
 											validate_dkim = true
 
 											// add the dkim-signature header that was used to headers
