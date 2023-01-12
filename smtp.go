@@ -1,6 +1,7 @@
 package main
 
 import (
+	"time"
 	"crypto/sha256"
 	"crypto/rand"
 	"crypto/tls"
@@ -496,7 +497,24 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 								fmt.Println("DKIM signing algorithm:", dkim_hp["a"])
 
-								if (dkim_hp["a"] != "rsa-sha256") {
+								var dkim_expired = false
+								if (dkim_hp["x"] != "") {
+									// make sure header is not expired
+									i, err := strconv.ParseInt("1405544146", 10, 64)
+									if err != nil {
+										// invalid data in x tag
+										dkim_expired = true
+									} else {
+										expire_time := time.Unix(i, 0)
+										if (expire_time.Unix() < time.Now().Unix()) {
+											dkim_expired = true
+										}
+									}
+								}
+
+								if (dkim_expired == true) {
+									fmt.Println("DKIM header is expired")
+								} else if (dkim_hp["a"] != "rsa-sha256") {
 									fmt.Println("unsupported DKIM signing algorithm", dkim_hp["a"])
 								} else {
 
