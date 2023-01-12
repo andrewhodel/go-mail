@@ -79,10 +79,12 @@ func main() {
 
 		// HEADERS
 		// you can use smtpParseTags() to parse strings with key=value; parts into a map[string]string
+		/*
 		fmt.Println("headers")
 		for h := range headers {
 			fmt.Println(h, headers[h])
 		}
+		*/
 
 		// return true if allowed, false if not
 		return true
@@ -96,16 +98,18 @@ func main() {
 		// a part can be an attachment or a body with a different content-type
 		// there is a parts_headers item for each part
 
+		/*
 		fmt.Println("parts:", len(parts))
 		for p := range parts {
 			fmt.Println("###### part:", p)
 			fmt.Println("part headers:", parts_headers[p])
-			if (len(parts[p]) > 1000) {
+			if (len(parts[p]) > 1000000) {
 				fmt.Println("email part is too long to print")
 			} else {
 				fmt.Println(string(parts[p]))
 			}
 		}
+		*/
 
 	})
 
@@ -456,6 +460,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 				var validate_dkim = false
 				var dkim_public_key = ""
 				var dkim_valid = false
+				var dkim_done = false
 				var dkim_hp map[string]string
 
 				v := make([]byte, 0)
@@ -501,7 +506,11 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 							// skip the newline
 							i = i + 1
 
-							if (validate_dkim == true) {
+							if (validate_dkim == true && dkim_done == false) {
+
+								// this needs to happen once the email is fully processed and only once
+								// the email is in smtp_data
+								dkim_done = true
 
 								//fmt.Println("DKIM signing algorithm:", dkim_hp["a"])
 
@@ -682,7 +691,11 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									// as base64
 									canonicalized_body_hash_base64 = base64.StdEncoding.EncodeToString(formatted_canonicalized_body_sha256_sum)
 
-									if (canonicalized_body_hash_base64 == dkim_hp["bh"]) {
+									if (canonicalized_body_hash_base64 != dkim_hp["bh"]) {
+
+										fmt.Println("DKIM canonicalized_body_hash_base64 does not equal the bh= tag value")
+
+									} else {
 
 										// body hash in the headers is the same as the calculated body hash
 										// valid
