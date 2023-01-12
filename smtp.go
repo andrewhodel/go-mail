@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rsa"
+	"crypto/x509"
 	"time"
 	"crypto/sha256"
 	"crypto/rand"
@@ -447,6 +449,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 				// limit the number of DKIM lookups
 				var dkim_lookups = 0
 				var validate_dkim = false
+				var dkim_public_key = ""
 				var dkim_valid = false
 				var dkim_hp map[string]string
 
@@ -619,7 +622,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 										fmt.Println("DKIM bh= tag matches hash of body content with length optionally specified by l= tag")
 
-										// the DKIM public key of the sending domain is in p_value
+										// the DKIM public key of the sending domain is in dkim_public_key
 
 										// b= is the signature of the headers and body
 										fmt.Println("signature base64 b=", dkim_hp["b"])
@@ -628,6 +631,20 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										//dkim_valid = true
 
 									}
+
+									// get the public key as an x509 object
+									var dkim_public_x509_key rsa.PublicKey
+									un64, un64_err := base64.StdEncoding.DecodeString(dkim_public_key)
+									if (un64_err == nil) {
+										pk, pk_err := x509.ParsePKIXPublicKey(un64)
+										if (pk_err == nil) {
+											if pk, ok := pk.(*rsa.PublicKey); ok {
+												dkim_public_x509_key = *pk
+											}
+										}
+									}
+
+									fmt.Println("dkim_public_x509_key", dkim_public_x509_key)
 
 								}
 
@@ -891,7 +908,9 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									// lines ending with =\r\n need to remove =\r\n
 									//fmt.Println("decoding content-transfer-encoding", string(header_value))
 									decode_qp = true
-								} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3) {
+								} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3 && dkim_public_key == "") {
+
+									// the dkim_public_key has not been found yet
 
 									// only allow 3 DKIM lookups to prevent a sending client from making the server perform many DNS requests
 									fmt.Println("\nDKIM Validation")
@@ -925,16 +944,15 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										l_txts, l_err := net.LookupTXT(query_domain)
 										if (l_err == nil) {
 
-											var p_value = ""
 											for t := range l_txts {
 												// get the last non empty p= value in the string results
 												var pp = smtpParseTags([]byte(l_txts[t]))
 												if (pp["p"] != "") {
-													p_value = pp["p"]
+													dkim_public_key = pp["p"]
 												}
 											}
 
-											fmt.Println("TXT Response base64 p=", p_value)
+											fmt.Println("TXT Response base64 p=", dkim_public_key)
 											validate_dkim = true
 
 										}
