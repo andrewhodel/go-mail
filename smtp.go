@@ -77,14 +77,14 @@ func main() {
 
 	}, func(headers map[string]string) bool {
 
-		// HEADERS
+		// headers
+		// use the "from" header, MAIL FROM may be a different address
+
 		// you can use smtpParseTags() to parse strings with key=value; parts into a map[string]string
-		/*
 		fmt.Println("headers")
 		for h := range headers {
 			fmt.Println(h, headers[h])
 		}
-		*/
 
 		// return true if allowed, false if not
 		return true
@@ -99,18 +99,16 @@ func main() {
 		// a part can be an attachment or a body with a different content-type
 		// there is a parts_headers item for each part
 
-		/*
 		fmt.Println("parts:", len(parts))
 		for p := range parts {
 			fmt.Println("###### part:", p)
 			fmt.Println("part headers:", parts_headers[p])
-			if (len(parts[p]) > 1000000) {
-				fmt.Println("email part is too long to print")
+			if (len(parts[p]) > 10000) {
+				fmt.Println(string(parts[p][0:10000]))
 			} else {
 				fmt.Println(string(parts[p]))
 			}
 		}
-		*/
 
 	})
 
