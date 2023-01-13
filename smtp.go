@@ -193,7 +193,7 @@ func smtpParseTags(b []byte) (map[string]string, []string) {
 // execute and respond to a command
 func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
-	fmt.Printf("smtp smtpExecCmd: %s\n", c)
+	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
 	if (!*authed) {
 		*total_cmds += 1
