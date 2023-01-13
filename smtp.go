@@ -81,6 +81,7 @@ func main() {
 
 		// headers
 		// use the "from" header, MAIL FROM may be a different address
+		// verify the message-id with stored messages to the same address to prevent duplicates
 
 		// you can use smtpParseTags() to parse strings with key=value; parts into a map[string]string
 		fmt.Println("headers")
