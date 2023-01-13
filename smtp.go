@@ -34,7 +34,7 @@ type Config struct {
 
 var config Config
 var ip_ac ipac.Ipac
-type mail_from_func func(string) bool
+type mail_from_func func(string, string, string) bool
 type rcpt_to_func func(string) bool
 type headers_func func(map[string]string) bool
 type full_message_func func([]map[string]string, [][]byte, bool, string)
@@ -56,13 +56,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	smtpServer(ip_ac, config, func(from_address string) bool {
+	smtpServer(ip_ac, config, func(from_address string, auth_login string, auth_password string) bool {
 
 		// MAIL FROM
 		fmt.Println("mail from", from_address)
+		fmt.Println("AUTH login", auth_login)
+		fmt.Println("AUTH password", auth_password)
 
-		//creds := strings.Split(from_address, "@")
-		//fmt.Println(creds)
+		//address_parts := strings.Split(from_address, "@")
+		//fmt.Println(address_parts)
 
 		// return true if allowed, false if not
 		return true
@@ -189,15 +191,43 @@ func smtpParseTags(b []byte) (map[string]string, []string) {
 }
 
 // execute and respond to a command
-func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, authed *bool, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
-	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
+	fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
 	if (!*authed) {
 		*total_cmds += 1
 	}
 
-	if (bytes.Index(c, []byte("STARTTLS")) == 0 && using_tls == false) {
+	if (*login_status == 1) {
+
+		// decode base64 encoded password
+		dec, dec_err := base64.StdEncoding.DecodeString(string(c))
+
+		if (dec_err == nil) {
+
+			// split the parts by a null character
+			var null_delimited_parts = bytes.Split(dec, []byte{0})
+
+			if (len(null_delimited_parts) == 1) {
+				*auth_password = string(dec)
+			} else if (len(null_delimited_parts) == 2) {
+				*auth_login = string(null_delimited_parts[0])
+				*auth_password = string(null_delimited_parts[1])
+			} else if (len(null_delimited_parts) == 3) {
+				*auth_login = string(null_delimited_parts[0])
+				*auth_password = string(null_delimited_parts[2])
+			}
+
+		}
+
+		// set login_status to 0
+		*login_status = 0
+
+		// send a 235 response
+		conn.Write([]byte("235\r\n"))
+
+	} else if (bytes.Index(c, []byte("STARTTLS")) == 0 && using_tls == false) {
 
 		conn.Write([]byte("220 Ready to start TLS\r\n"))
 
@@ -219,10 +249,12 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 
 		//fmt.Printf("EHLO command\n")
 
-		// respond with 250 and supported SMTP extensions
+		// respond with 250-
+		// supported SMTP extensions
 		conn.Write([]byte("250-" + config.Fqdn + "\r\n"))
 		conn.Write([]byte("250-SIZE 14680064\r\n"))
 		conn.Write([]byte("250-8BITMIME\r\n"))
+		conn.Write([]byte("250-AUTH PLAIN\r\n"))
 
 		if (using_tls == false) {
 			// start tls
@@ -232,8 +264,53 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 		conn.Write([]byte("250-ENHANCEDSTATUSCODES\r\n"))
 		conn.Write([]byte("250-PIPELINING\r\n"))
 		//conn.Write([]byte("250-CHUNKING\r\n")) // this is BDAT CHUNKING, the BDAT command must be supported
-		// this has to be sent without a - to allow the other extensions to be specified with the per EHLO
-		conn.Write([]byte("250 SMTPUTF8\r\n"))
+		conn.Write([]byte("250-SMTPUTF8\r\n"))
+
+		// respond without the - to request the next command
+		conn.Write([]byte("250\r\n"))
+
+	} else if (bytes.Index(c, []byte("AUTH PLAIN")) == 0) {
+
+		var auth_parts = bytes.Split(c, []byte(" "))
+
+		if (len(auth_parts) == 3) {
+
+			// password sent in this command as the third parameter
+
+			// decode the base64 password
+			dec, dec_err := base64.StdEncoding.DecodeString(string(auth_parts[2]))
+
+			if (dec_err == nil) {
+
+				// split the parts by a null character
+				var null_delimited_parts = bytes.Split(dec, []byte{0})
+
+				if (len(null_delimited_parts) == 1) {
+					*auth_password = string(dec)
+				} else if (len(null_delimited_parts) == 2) {
+					*auth_login = string(null_delimited_parts[0])
+					*auth_password = string(null_delimited_parts[1])
+				} else if (len(null_delimited_parts) == 3) {
+					*auth_login = string(null_delimited_parts[0])
+					*auth_password = string(null_delimited_parts[2])
+				}
+
+			}
+
+			// respond with 235
+			conn.Write([]byte("235\r\n"))
+
+		} else {
+
+			// password sent as next command (on next line)
+
+			// set login_status to 1 to parse that next line
+			*login_status = 1
+
+			// respond with 334
+			conn.Write([]byte("334\r\n"))
+
+		}
 
 	} else if (bytes.Index(c, []byte("MAIL FROM:")) == 0) {
 
@@ -248,7 +325,7 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 
 		//fmt.Printf("send address (between %d and %d): %s\n", i1, i2, s)
 
-		var mail_from_authed = mail_from_func(string(s))
+		var mail_from_authed = mail_from_func(string(s), *auth_login, *auth_password)
 
 		if (mail_from_authed == false) {
 
@@ -259,7 +336,8 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 			conn.Write([]byte("221 not authorized\r\n"))
 			conn.Close()
 		} else {
-			conn.Write([]byte("250 OK\r\n"))
+			conn.Write([]byte("250 AUTH\r\n"))
+			//conn.Write([]byte("250 OK\r\n"))
 		}
 
 	} else if (bytes.Index(c, []byte("RCPT TO:")) == 0) {
@@ -349,6 +427,9 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 	}
 
 	authed := false
+	login_status := 0
+	auth_login := ""
+	auth_password := ""
 	parse_data := false
 	to_address := ""
 
@@ -428,7 +509,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 				if (len(line) > 0) {
 					// do not send an empty line to smtpExecCmd()
-					smtpExecCmd(using_tls, conn, tls_config, config, line, &authed, &to_address, &parse_data, &total_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+					smtpExecCmd(using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &to_address, &parse_data, &total_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 				}
 
 				if (len(smtp_data) + 2 >= len(line) && len(smtp_data) >= 2 && len(line) + 2 <= len(smtp_data)) {
