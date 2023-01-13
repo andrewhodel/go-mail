@@ -253,8 +253,12 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 		var mail_from_authed = mail_from_func(string(s))
 
 		if (mail_from_authed == false) {
+
+			// invalid auth
+			ipac.ModifyAuth(&ip_ac, 1, ip)
+
 			// return 221
-			conn.Write([]byte("221\r\n"))
+			conn.Write([]byte("221 not authorized\r\n"))
 			conn.Close()
 		} else {
 			conn.Write([]byte("250 OK\r\n"))
@@ -281,9 +285,13 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 		if (*authed == true) {
 			conn.Write([]byte("250 OK\r\n"))
 		} else {
+
+			// invalid auth
+			ipac.ModifyAuth(&ip_ac, 1, ip)
+
 			// 221 <domain>
 			// service closing transmission channel
-			conn.Write([]byte("221\r\n"))
+			conn.Write([]byte("221 not authorized\r\n"))
 			conn.Close()
 		}
 
@@ -292,13 +300,21 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 		//fmt.Printf("DATA command\n")
 
 		if (*authed) {
+
+			// valid auth
+			ipac.ModifyAuth(&ip_ac, 2, ip)
+
 			*parse_data = true
 			conn.Write([]byte("354 End data with <CR><LF>.<CR><LF>\r\n"))
 			//fmt.Println("DATA received, replied with 354")
 		} else {
+
+			// invalid auth
+			ipac.ModifyAuth(&ip_ac, 1, ip)
+
 			// 221 <domain>
 			// service closing transmission channel
-			conn.Write([]byte("221\r\n"))
+			conn.Write([]byte("221 not authorized\r\n"))
 			conn.Close()
 		}
 
@@ -493,7 +509,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 								authed = headers_func(headers)
 
 								if (authed == false) {
-									conn.Write([]byte("221\r\n"))
+									conn.Write([]byte("221 not authorized\r\n"))
 									conn.Close()
 									return
 								}
