@@ -37,7 +37,7 @@ var ip_ac ipac.Ipac
 type mail_from_func func(string) bool
 type rcpt_to_func func(string) bool
 type headers_func func(map[string]string) bool
-type full_message_func func([]map[string]string, [][]byte, bool)
+type full_message_func func([]map[string]string, [][]byte, bool, string)
 
 func main() {
 
@@ -89,10 +89,11 @@ func main() {
 		// return true if allowed, false if not
 		return true
 
-	}, func(parts_headers []map[string]string, parts [][]byte, dkim_valid bool) {
+	}, func(parts_headers []map[string]string, parts [][]byte, dkim_valid bool, ip string) {
 
 		fmt.Println("full email received")
 		fmt.Println("dkim valid:", dkim_valid)
+		fmt.Println("ip of smtp client", ip)
 
 		// email is in parts
 		// a part can be an attachment or a body with a different content-type
@@ -1172,7 +1173,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 				parse_data = false
 
 				// full email received, handle it
-				full_message_func(parts_headers, parts, dkim_valid)
+				full_message_func(parts_headers, parts, dkim_valid, ip)
 
 				// free the memory
 				parts = nil
