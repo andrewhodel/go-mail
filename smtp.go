@@ -121,9 +121,9 @@ func main() {
 		// auth_login		ESTMP AUTH PLAIN login
 		// auth_password	ESTMP AUTH PLAIN password
 
-		fmt.Println("full email received")
-		fmt.Println("dkim valid:", dkim_valid)
-		fmt.Println("ip of smtp client", ip)
+		fmt.Println("full email received, length", len(*email_data))
+		fmt.Println("dkim valid:", *dkim_valid)
+		fmt.Println("ip of smtp client", *ip)
 
 		// email is in parts
 		// a part can be an attachment or a body with a different content-type
@@ -1296,6 +1296,14 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 				conn.Write([]byte("250 OK\r\n"))
 
 				// now the client may send another email or disconnect
+
+				// add the end of transmission sequence that was removed back to smtp_data
+				// []byte("\r\n.\r\n"))
+				smtp_data = append(smtp_data, '\r')
+				smtp_data = append(smtp_data, '\n')
+				smtp_data = append(smtp_data, '.')
+				smtp_data = append(smtp_data, '\r')
+				smtp_data = append(smtp_data, '\n')
 
 				// full email received
 				// none of the data passed in the pointers should be accessed after this
