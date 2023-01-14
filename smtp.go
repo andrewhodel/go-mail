@@ -1276,10 +1276,10 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 										// get the DKIM public key from DNS
 										// it should be looked up from many physical locations on the planet
-										// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, that would make SMTP perfect)
+										// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, TLS validation of the from domain would make SMTP perfect.  TLS validation of the MAIL FROM sender would make SMTP better.)
 										// make a TXT dns query to selector._domainkey.domain to get the key
 										var query_domain = dkim_hp["s"] + "._domainkey." + dkim_hp["d"]
-										fmt.Println("DKIM DNS Query TXT:", query_domain)
+										//fmt.Println("DKIM DNS Query TXT:", query_domain)
 
 										// keep track of the number of dkim lookups
 										dkim_lookups = dkim_lookups + 1
@@ -1302,6 +1302,8 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 											headers[string(header_name)] = string(header_value)
 											real_headers = append(real_headers, string(header_name))
 
+										} else {
+											headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(DNS TXT record not found " + query_domain + ")"
 										}
 
 									}
