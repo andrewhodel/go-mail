@@ -219,7 +219,7 @@ func smtpParseTags(b []byte) (map[string]string, []string) {
 }
 
 // execute and respond to a command
-func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, mail_from *string, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
@@ -353,6 +353,8 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 
 		//fmt.Printf("send address (between %d and %d): %s\n", i1, i2, s)
 
+		*mail_from = string(s)
+
 		var mail_from_authed = mail_from_func(string(s), ip, *auth_login, *auth_password)
 
 		if (mail_from_authed == false) {
@@ -383,6 +385,8 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 		_ = s
 
 		//fmt.Printf("rcpt address (between %d and %d): %s\n", i1, i2, s)
+
+		*to_address = string(s)
 
 		*authed = rcpt_to_func(string(s), ip, *auth_login, *auth_password)
 
@@ -459,6 +463,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 	auth_login := ""
 	auth_password := ""
 	parse_data := false
+	mail_from := ""
 	to_address := ""
 
 	login := make([]byte, 0)
@@ -537,7 +542,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 				if (len(line) > 0) {
 					// do not send an empty line to smtpExecCmd()
-					smtpExecCmd(using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &to_address, &parse_data, &total_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+					smtpExecCmd(using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &mail_from, &to_address, &parse_data, &total_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 				}
 
 				if (len(smtp_data) + 2 >= len(line) && len(smtp_data) >= 2 && len(line) + 2 <= len(smtp_data)) {
@@ -653,10 +658,32 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 									}
 								}
 
+								// the domain in the from header
+								var valid_domain_1 = ""
+
+								var d1p = strings.Split(headers["from"], "@")
+								if (len(d1p) == 2) {
+									valid_domain_1 = strings.TrimRight(d1p[1], ">")
+								}
+
+								// the domain in the MAIL FROM command
+								var valid_domain_2 = ""
+
+								var d2p = strings.Split(mail_from, "@")
+								if (len(d2p) == 2) {
+									valid_domain_2 = d2p[1]
+								}
+
 								if (dkim_expired == true) {
 									//fmt.Println("DKIM header is expired")
+									headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(header is expired)"
 								} else if (dkim_hp["a"] != "rsa-sha256") {
 									//fmt.Println("unsupported DKIM signing algorithm", dkim_hp["a"])
+									headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(unsupported signing algorithm)"
+								} else if (dkim_hp["d"] != valid_domain_1 && dkim_hp["d"] != valid_domain_2) {
+									// the d= tag value (domain specified in the DKIM header) is not the same domain as the reply-to address
+									//fmt.Println("DKIM d= domain", dkim_hp["d"], "does not match the from address", headers["from"], "or the MAIL FROM address", mail_from)
+									headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(d= domain does not match the from header domain or the SMTP MAIL FROM domain)"
 								} else {
 
 									// finish parsing the DKIM headers
@@ -837,6 +864,8 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										fmt.Println("canonicalized_body_hash_base64", canonicalized_body_hash_base64)
 										*/
 
+										headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(canonicalized body hash encoded as base64 does not equal the bh= tag value)"
+
 									} else {
 
 										// body hash in the headers is the same as the calculated body hash
@@ -941,6 +970,8 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 												// the dkim data is valid
 												dkim_valid = true
 
+											} else {
+												headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(canonicalized headers hash did not equal the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())"
 											}
 										}
 
@@ -1248,7 +1279,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 										// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, that would make SMTP perfect)
 										// make a TXT dns query to selector._domainkey.domain to get the key
 										var query_domain = dkim_hp["s"] + "._domainkey." + dkim_hp["d"]
-										//fmt.Println("DKIM DNS Query TXT:", query_domain)
+										fmt.Println("DKIM DNS Query TXT:", query_domain)
 
 										// keep track of the number of dkim lookups
 										dkim_lookups = dkim_lookups + 1
