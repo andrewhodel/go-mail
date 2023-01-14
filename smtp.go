@@ -60,8 +60,8 @@ func main() {
 
 		// from_address		MAIL FROM value
 		// ip			ip address of the sending client
-		// auth_login		ESTMP AUTH PLAIN login
-		// auth_password	ESTMP AUTH PLAIN password
+		// auth_login		ESTMP AUTH login
+		// auth_password	ESTMP AUTH password
 
 		// MAIL FROM
 		fmt.Println("mail from", from_address)
@@ -80,8 +80,8 @@ func main() {
 
 		// to_address		RCPT TO value
 		// ip			ip address of the sending client
-		// auth_login		ESTMP AUTH PLAIN login
-		// auth_password	ESTMP AUTH PLAIN password
+		// auth_login		ESTMP AUTH login
+		// auth_password	ESTMP AUTH password
 
 		// RCPT TO
 		fmt.Println("mail to", to_address)
@@ -94,8 +94,8 @@ func main() {
 
 		// headers		parsed headers
 		// ip			ip address of the sending client
-		// auth_login		ESTMP AUTH PLAIN login
-		// auth_password	ESTMP AUTH PLAIN password
+		// auth_login		ESTMP AUTH login
+		// auth_password	ESTMP AUTH password
 
 		// headers
 		// verify the message-id with stored messages to the same address to prevent duplicates
@@ -118,8 +118,8 @@ func main() {
 		// parts		each body block
 		// dkim_valid		true if DKIM validated by the domain's public key
 		// ip			ip address of the sending client
-		// auth_login		ESTMP AUTH PLAIN login
-		// auth_password	ESTMP AUTH PLAIN password
+		// auth_login		ESTMP AUTH login
+		// auth_password	ESTMP AUTH password
 
 		fmt.Println("full email received, length", len(*email_data))
 		fmt.Println("dkim valid:", *dkim_valid)
