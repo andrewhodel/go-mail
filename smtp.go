@@ -37,7 +37,7 @@ var ip_ac ipac.Ipac
 type mail_from_func func(string, string, string, string) bool
 type rcpt_to_func func(string, string, string, string) bool
 type headers_func func(map[string]string, string, string, string) bool
-type full_message_func func(map[string]string, []map[string]string, [][]byte, bool, string, string, string)
+type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *string, *string)
 
 func main() {
 
@@ -58,29 +58,46 @@ func main() {
 
 	smtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string) bool {
 
+		// from_address		MAIL FROM value
+		// ip			ip address of the sending client
+		// auth_login		ESTMP AUTH PLAIN login
+		// auth_password	ESTMP AUTH PLAIN password
+
 		// MAIL FROM
 		fmt.Println("mail from", from_address)
 		fmt.Println("AUTH login", auth_login)
 		fmt.Println("AUTH password", auth_password)
 
+		// get the email local-part and domain
 		//address_parts := strings.Split(from_address, "@")
 		//fmt.Println(address_parts)
 
-		// return true if allowed, false if not
+		// return true if allowed
+		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
 		return true
 
 	}, func(to_address string, ip string, auth_login string, auth_password string) bool {
 
+		// to_address		RCPT TO value
+		// ip			ip address of the sending client
+		// auth_login		ESTMP AUTH PLAIN login
+		// auth_password	ESTMP AUTH PLAIN password
+
 		// RCPT TO
 		fmt.Println("mail to", to_address)
 
-		// return true if allowed, false if not
+		// return true if allowed
+		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
 		return true
 
 	}, func(headers map[string]string, ip string, auth_login string, auth_password string) bool {
 
+		// headers		parsed headers
+		// ip			ip address of the sending client
+		// auth_login		ESTMP AUTH PLAIN login
+		// auth_password	ESTMP AUTH PLAIN password
+
 		// headers
-		// use the "from" header, MAIL FROM may be a different address
 		// verify the message-id with stored messages to the same address to prevent duplicates
 
 		// you can use smtpParseTags() to parse strings with key=value; parts into a map[string]string
@@ -89,10 +106,20 @@ func main() {
 			fmt.Println(h, headers[h])
 		}
 
-		// return true if allowed, false if not
+		// return true if allowed
+		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
 		return true
 
-	}, func(headers map[string]string, parts_headers []map[string]string, parts [][]byte, dkim_valid bool, ip string, auth_login string, auth_password string) {
+	}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, auth_login *string, auth_password *string) {
+
+		// email_data		raw email data as received (headers and body)
+		// headers		parsed headers
+		// parts_headers	headers of each body block
+		// parts		each body block
+		// dkim_valid		true if DKIM validated by the domain's public key
+		// ip			ip address of the sending client
+		// auth_login		ESTMP AUTH PLAIN login
+		// auth_password	ESTMP AUTH PLAIN password
 
 		fmt.Println("full email received")
 		fmt.Println("dkim valid:", dkim_valid)
@@ -102,14 +129,14 @@ func main() {
 		// a part can be an attachment or a body with a different content-type
 		// there is a parts_headers item for each part
 
-		fmt.Println("parts:", len(parts))
-		for p := range parts {
+		fmt.Println("parts:", len(*parts))
+		for p := range *parts {
 			fmt.Println("###### part:", p)
-			fmt.Println("part headers:", parts_headers[p])
-			if (len(parts[p]) > 10000) {
-				fmt.Println(string(parts[p][0:10000]))
+			fmt.Println("part headers:", (*parts_headers)[p])
+			if (len((*parts)[p]) > 10000) {
+				fmt.Println(string((*parts)[p][0:10000]))
 			} else {
-				fmt.Println(string(parts[p]))
+				fmt.Println(string((*parts)[p]))
 			}
 		}
 
@@ -1262,23 +1289,18 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 				}
 
-				// empty smtp_data
-				smtp_data = nil
-
 				// set parse_data back to false
 				parse_data = false
-
-				// full email received, handle it
-				full_message_func(headers, parts_headers, parts, dkim_valid, ip, auth_login, auth_password)
-
-				// free the memory
-				parts = nil
-				parts_headers = nil
 
 				// write 250 OK
 				conn.Write([]byte("250 OK\r\n"))
 
 				// now the client may send another email or disconnect
+
+				// full email received
+				// none of the data passed in the pointers should be accessed after this
+				// because it is sent in a pointer to a user level closure of a module
+				full_message_func(&smtp_data, &headers, &parts_headers, &parts, &dkim_valid, &ip, &auth_login, &auth_password)
 
 			}
 
