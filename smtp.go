@@ -34,10 +34,10 @@ type Config struct {
 
 var config Config
 var ip_ac ipac.Ipac
-type mail_from_func func(string, string, string) bool
-type rcpt_to_func func(string) bool
-type headers_func func(map[string]string) bool
-type full_message_func func([]map[string]string, [][]byte, bool, string)
+type mail_from_func func(string, string, string, string) bool
+type rcpt_to_func func(string, string, string, string) bool
+type headers_func func(map[string]string, string, string, string) bool
+type full_message_func func(map[string]string, []map[string]string, [][]byte, bool, string, string, string)
 
 func main() {
 
@@ -56,7 +56,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	smtpServer(ip_ac, config, func(from_address string, auth_login string, auth_password string) bool {
+	smtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string) bool {
 
 		// MAIL FROM
 		fmt.Println("mail from", from_address)
@@ -69,7 +69,7 @@ func main() {
 		// return true if allowed, false if not
 		return true
 
-	}, func(to_address string) bool {
+	}, func(to_address string, ip string, auth_login string, auth_password string) bool {
 
 		// RCPT TO
 		fmt.Println("mail to", to_address)
@@ -77,7 +77,7 @@ func main() {
 		// return true if allowed, false if not
 		return true
 
-	}, func(headers map[string]string) bool {
+	}, func(headers map[string]string, ip string, auth_login string, auth_password string) bool {
 
 		// headers
 		// use the "from" header, MAIL FROM may be a different address
@@ -92,7 +92,7 @@ func main() {
 		// return true if allowed, false if not
 		return true
 
-	}, func(parts_headers []map[string]string, parts [][]byte, dkim_valid bool, ip string) {
+	}, func(headers map[string]string, parts_headers []map[string]string, parts [][]byte, dkim_valid bool, ip string, auth_login string, auth_password string) {
 
 		fmt.Println("full email received")
 		fmt.Println("dkim valid:", dkim_valid)
@@ -326,7 +326,7 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 
 		//fmt.Printf("send address (between %d and %d): %s\n", i1, i2, s)
 
-		var mail_from_authed = mail_from_func(string(s), *auth_login, *auth_password)
+		var mail_from_authed = mail_from_func(string(s), ip, *auth_login, *auth_password)
 
 		if (mail_from_authed == false) {
 
@@ -357,7 +357,7 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 
 		//fmt.Printf("rcpt address (between %d and %d): %s\n", i1, i2, s)
 
-		*authed = rcpt_to_func(string(s))
+		*authed = rcpt_to_func(string(s), ip, *auth_login, *auth_password)
 
 		if (*authed == true) {
 			conn.Write([]byte("250 OK\r\n"))
@@ -586,7 +586,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 							if (headers_sent == false) {
 								// send the headers for validation
-								authed = headers_func(headers)
+								authed = headers_func(headers, ip, auth_login, auth_password)
 
 								if (authed == false) {
 									conn.Write([]byte("221 not authorized\r\n"))
@@ -1269,7 +1269,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 				parse_data = false
 
 				// full email received, handle it
-				full_message_func(parts_headers, parts, dkim_valid, ip)
+				full_message_func(headers, parts_headers, parts, dkim_valid, ip, auth_login, auth_password)
 
 				// free the memory
 				parts = nil
