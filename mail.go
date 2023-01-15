@@ -38,7 +38,7 @@ type Config struct {
 	Fqdn				string	`json:"fqdn"`
 }
 
-func smtpParseTags(b []byte) (map[string]string, []string) {
+func SmtpParseTags(b []byte) (map[string]string, []string) {
 
 	// converts "   a=asdf;  b=afsdf" to
 	// v["a"] = "asdf"
@@ -831,7 +831,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 											// add the DKIM header that was used
 											// with no newlines, an empty b= tag and a space for each wsp sequence
 											// in the original header's order
-											dkim_tags, dkim_order := smtpParseTags([]byte(headers["dkim-signature"]))
+											dkim_tags, dkim_order := SmtpParseTags([]byte(headers["dkim-signature"]))
 											var canonicalized_dkim_header_string = ""
 
 											for dh := range dkim_order {
@@ -1155,7 +1155,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 									// v, a, d, s, bh, b
 									// and possibly the optional field
 									// l
-									temp, _ := smtpParseTags(header_value)
+									temp, _ := SmtpParseTags(header_value)
 									dkim_hp = temp
 
 									if (dkim_hp["v"] == "" || dkim_hp["a"] == "" || dkim_hp["d"] == "" || dkim_hp["s"] == "" || dkim_hp["bh"] == "" || dkim_hp["b"] == "") {
@@ -1183,7 +1183,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 											for t := range l_txts {
 												// get the last non empty p= value in the string results
-												pp, _ := smtpParseTags([]byte(l_txts[t]))
+												pp, _ := SmtpParseTags([]byte(l_txts[t]))
 												if (pp["p"] != "") {
 													dkim_public_key = pp["p"]
 												}

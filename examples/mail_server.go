@@ -78,7 +78,7 @@ func main() {
 		// headers
 		// verify the message-id with stored messages to the same address to prevent duplicates
 
-		// you can use smtpParseTags() to parse strings with key=value; parts into a map[string]string
+		// you can use SmtpParseTags() to parse strings with key=value; parts into a map[string]string
 		fmt.Println("headers")
 		for h := range headers {
 			fmt.Println(h, headers[h])
