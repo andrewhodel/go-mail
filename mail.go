@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/md5"
 	"crypto"
 	"hash"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"io"
 	"encoding/base64"
+	"encoding/hex"
 	"mime/quotedprintable"
 	"os"
 	"github.com/andrewhodel/go-ip-ac"
@@ -29,6 +31,7 @@ type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *
 type Config struct {
 	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
 	SmtpNonTLSPorts			[]int64	`json:"smtpNonTLSPorts"`
+	PopPort				int64	`json:"popPort"`
 	SslKey				string	`json:"sslKey"`
 	SslCert				string	`json:"sslCert"`
 	SslCa				string	`json:"sslCa"`
@@ -1342,7 +1345,239 @@ func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 		go smtpListenTLS(ip_ac, config.SmtpTLSPorts[p], config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 	}
 
-	// keep main thread open
-	select {}
+}
+
+func PopServer(config Config) {
+
+	cert, err := tls.LoadX509KeyPair(config.SslCert, config.SslKey)
+
+	if err != nil {
+		fmt.Printf("pop server did not load TLS certificates: %s", err)
+		os.Exit(1)
+	}
+
+	srv_config := tls.Config{Certificates: []tls.Certificate{cert}}
+	srv_config.Rand = rand.Reader
+	service := ":" + strconv.FormatInt(config.PopPort, 10)
+	listener, err := tls.Listen("tcp", service, &srv_config)
+
+	if err != nil {
+		fmt.Printf("POP server error: %s", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("POP (RFC 1939 with 8314) listening on port " + strconv.FormatInt(config.PopPort, 10))
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			//fmt.Printf("POP server: %s", err)
+			break
+		}
+		defer conn.Close()
+		fmt.Printf("POP server: connection from %s", conn.RemoteAddr())
+		go popHandleClient(conn, config)
+	}
+
+}
+
+// write to the connection
+func popCw(conn net.Conn, b []byte) {
+
+	n, err := conn.Write(b)
+
+	_ = n
+	if err != nil {
+		fmt.Printf("POP conn.Write() error: %s\n", err)
+	}
+
+}
+
+// execute and respond to a command
+func popExecCmd(conn net.Conn, c []byte, ss string) {
+
+	// each command can be up to 512 bytes and the buffer is that big
+	// they are ended with \r\n so remove everything from that
+	c = bytes.Split(c, []byte("\r\n"))[0]
+
+	fmt.Printf("POP command: %s\n", c)
+
+	if (bytes.Index(c, []byte("USER")) == 0) {
+
+		// USER name
+		s := bytes.Split(c, []byte(" "))
+
+		if (len(s) != 2) {
+			conn.Write([]byte("-ERR invalid USER command\r\n"))
+		} else {
+			// store the username to test once the password arrives
+			//u := s[1]
+			conn.Write([]byte("+OK try PASS\r\n"))
+		}
+
+	} else if (bytes.Index(c, []byte("PASS")) == 0) {
+
+		// PASS string
+		s := bytes.Split(c, []byte(" "))
+
+		if (len(s) != 2) {
+			conn.Write([]byte("-ERR invalid PASS command\r\n"))
+		} else {
+			// test the stored username and this password
+			//u := conn_struct.existing_username
+			p := s[1]
+			if (string(p) == "asdf") {
+				conn.Write([]byte("+OK logged in\r\n"))
+			} else {
+				conn.Write([]byte("-ERR invalid credentialsr\n"))
+			}
+		}
+
+	} else if (bytes.Index(c, []byte("AUTH")) == 0) {
+
+		conn.Write([]byte("-ERR need credentials and login type\r\n"))
+
+	} else if (bytes.Index(c, []byte("APOP")) == 0) {
+
+		// APOP login password
+		// split by space character
+		s := bytes.Split(c, []byte(" "))
+
+		if (len(s) != 3) {
+			conn.Write([]byte("-ERR invalid APOP command\r\n"))
+		} else {
+
+			//fmt.Printf("%q\n", s)
+
+			u := s[1]
+			p := s[2]
+
+			// the password should be the stored users password and the shared secret
+			// md5sum(ss + password)
+			m := md5.New()
+			m.Write([]byte(ss + "asdf"))
+			valid_sum := hex.EncodeToString(m.Sum(nil))
+
+			fmt.Printf("valid md5sum: %s\n", valid_sum)
+
+			// validate credentials
+			if (string(p) == valid_sum && string(u) == "andrew@xyzbots.com") {
+				fmt.Println("APOP authenticated")
+				conn.Write([]byte("+OK logged in\r\n"))
+			} else {
+				fmt.Println("APOP not authenticated")
+				conn.Write([]byte("-ERR invalid credentials\r\n"))
+			}
+
+		}
+
+	} else if (bytes.Index(c, []byte("CAPA")) == 0) {
+
+		// respond with capabilities line by line, ended with a .
+		conn.Write([]byte("+OK\r\nCAPA\r\nAPOP\r\nUSER\r\n.\r\n"))
+
+	} else if (bytes.Index(c, []byte("STAT")) == 0) {
+
+		// respond with number of messages and collective size in bytes
+		conn.Write([]byte("+OK 0 0\r\n"))
+
+	} else if (bytes.Index(c, []byte("LIST")) == 0) {
+
+		// returns a list of all messages in the inbox, their message number (identifier) and size in bytes
+		// if LIST has a parameter that is an integer, LIST 1 then only return that message
+		// +OK 1 4444
+		conn.Write([]byte("+OK 1 messages:\r\n1 4444\r\n.\r\n"))
+
+	} else if (bytes.Index(c, []byte("RETR")) == 0) {
+
+		conn.Write([]byte("+OK 0 octets\r\n.\r\n"))
+
+	} else if (bytes.Index(c, []byte("DELE")) == 0) {
+
+		// DELE N
+		// delete message N, pending pop session end
+		conn.Write([]byte("+OK will be deleted\r\n"))
+
+	} else if (bytes.Index(c, []byte("NOOP")) == 0) {
+
+		// this is similar to a keep-alive
+		conn.Write([]byte("+OK\r\n"))
+
+	} else if (bytes.Index(c, []byte("RSET")) == 0) {
+
+		// reset all pending delete operations
+		// no messages will be deleted
+		conn.Write([]byte("+OK\r\n"))
+
+	} else if (bytes.Index(c, []byte("QUIT")) == 0) {
+
+		// logout, client should close the connection
+		// the server might as well also
+		conn.Write([]byte("+OK logging out\r\n"))
+		conn.Close()
+
+	} else {
+
+		conn.Write([]byte("-ERR unknown command\r\n"))
+
+	}
+
+}
+
+func popHandleClient(conn net.Conn, config Config) {
+
+	defer conn.Close()
+
+	// create the shared secret or timestamp banner
+	ss := popTimestampBanner(config.Fqdn)
+
+	fmt.Println("POP client connected")
+
+	// send the first connection message
+	popCw(conn, []byte("+OK POP3 server ready " + ss + "\r\n"))
+
+	buf := make([]byte, 512)
+
+	for {
+
+		n, n_err := conn.Read(buf)
+		_ = n
+		if (n_err != nil) {
+			fmt.Printf("POP server: %s\n", n_err)
+			break
+		}
+
+		// execute the command, each a maximum of 512 bytes with the final \r\n
+		popExecCmd(conn, buf, ss)
+
+	}
+
+	fmt.Println("server: conn: closed")
+
+}
+
+func popTimestampBanner(fqdn string) (string) {
+
+	/*
+	A POP3 server which implements the APOP command will
+	include a timestamp in its banner greeting.  The syntax of
+	the timestamp corresponds to the `msg-id' in [RFC822], and
+	MUST be different each time the POP3 server issues a banner
+	greeting.  For example, on a UNIX implementation in which a
+	separate UNIX process is used for each instance of a POP3
+	server, the syntax of the timestamp might be:
+
+	<process-ID.clock@hostname>
+
+	where `process-ID' is the decimal value of the process's
+	PID, clock is the decimal value of the system clock, and
+	hostname is the fully-qualified domain-name corresponding
+	to the host where the POP3 server is running.
+	*/
+
+	// create the timestamp banner
+	timestamp_banner := "<1896." + strconv.FormatInt(time.Now().Unix(), 10) + "@" + fqdn + ">"
+
+	return timestamp_banner
 
 }
