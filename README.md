@@ -1,4 +1,4 @@
-go-mail
+# go-mail
 
 email in a go module
 
@@ -9,7 +9,7 @@ email in a go module
 
 # functions
 
-```
+```go
 SmtpServer()
 	Start SMTP Server(s) with or without TLS
 
@@ -18,4 +18,10 @@ PopServer()
 
 ParseTags()
 	Parse string with key=value tags to map[string]string
+```
+
+# example
+
+```go
+
 ```
