@@ -1474,11 +1474,23 @@ func popExecCmd(conn net.Conn, c []byte, ss string) {
 
 			// validate credentials
 			if (string(p) == valid_sum && string(u) == "andrew@xyzbots.com") {
+
 				fmt.Println("APOP authenticated")
+
+				// valid auth
+				ipac.ModifyAuth(&ip_ac, 2, ip)
+
 				conn.Write([]byte("+OK logged in\r\n"))
+
 			} else {
+
 				fmt.Println("APOP not authenticated")
+
+				// invalid auth
+				ipac.ModifyAuth(&ip_ac, 1, ip)
+
 				conn.Write([]byte("-ERR invalid credentials\r\n"))
+
 			}
 
 		}
