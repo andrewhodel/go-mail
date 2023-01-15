@@ -1388,7 +1388,7 @@ func PopServer(config Config, ip_ac ipac.Ipac) {
 
 		//fmt.Printf("POP server: connection from %s\n", conn.RemoteAddr())
 
-		go popHandleClient(conn, config)
+		go popHandleClient(ip_ac, ip, conn, config)
 	}
 
 }
@@ -1406,7 +1406,7 @@ func popCw(conn net.Conn, b []byte) {
 }
 
 // execute and respond to a command
-func popExecCmd(conn net.Conn, c []byte, ss string) {
+func popExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string) {
 
 	// each command can be up to 512 bytes and the buffer is that big
 	// they are ended with \r\n so remove everything from that
@@ -1548,7 +1548,7 @@ func popExecCmd(conn net.Conn, c []byte, ss string) {
 
 }
 
-func popHandleClient(conn net.Conn, config Config) {
+func popHandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config) {
 
 	defer conn.Close()
 
@@ -1572,7 +1572,7 @@ func popHandleClient(conn net.Conn, config Config) {
 		}
 
 		// execute the command, each a maximum of 512 bytes with the final \r\n
-		popExecCmd(conn, buf, ss)
+		popExecCmd(ip_ac, ip, conn, buf, ss)
 
 	}
 
