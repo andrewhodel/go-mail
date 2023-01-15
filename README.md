@@ -1,6 +1,6 @@
 # go-mail
 
-email in a go module
+Email in a go module
 
 * SMTP (with and without TLS)
 * ESTMP Extensions (8BITMIME, AUTH, STARTTLS, ENHANCEDSTATUSCODE, PIPELINING, SMTPUTF8)
@@ -24,4 +24,11 @@ ParseTags()
 
 ```go
 
+```
+
+# install
+
+```
+GO111MODULE=off go get github.com/andrewhodel/go-ip-ac
+sudo GOPATH=/home/ec2-user/go GO111MODULE=off go run mail_server.go
 ```
