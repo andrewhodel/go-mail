@@ -1347,7 +1347,7 @@ func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 
 }
 
-func PopServer(config Config) {
+func PopServer(config Config, ip_ac ipac.Ipac) {
 
 	cert, err := tls.LoadX509KeyPair(config.SslCert, config.SslKey)
 
@@ -1375,7 +1375,19 @@ func PopServer(config Config) {
 			break
 		}
 		defer conn.Close()
-		fmt.Printf("POP server: connection from %s", conn.RemoteAddr())
+
+		// take the port number off the address
+		var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+		_ = port
+		_ = iperr
+
+		if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+			conn.Close()
+			continue
+		}
+
+		//fmt.Printf("POP server: connection from %s\n", conn.RemoteAddr())
+
 		go popHandleClient(conn, config)
 	}
 
