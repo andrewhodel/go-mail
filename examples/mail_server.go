@@ -17,10 +17,15 @@ func main() {
 	ipac.Init(&ip_ac)
 
 	// read the configuration file
-	config_file_data, err := ioutil.ReadFile("./config.json")
+	cwd, cwd_err := os.Getwd()
+	if (cwd_err != nil) {
+		fmt.Println(cwd_err)
+		os.Exit(1)
+	}
+	config_file_data, err := ioutil.ReadFile(cwd + "/config.json")
 
 	if (err != nil) {
-		fmt.Printf("Error reading configuration file ./config.json: %s\n", err)
+		fmt.Printf("Error reading configuration file ./config.json (" + cwd + "/config.json): %s\n", err)
 	}
 
 	config_json_err := json.Unmarshal(config_file_data, &config)
@@ -29,7 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	gomail.smtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string) bool {
+	gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string) bool {
 
 		// from_address		MAIL FROM value
 		// ip			ip address of the sending client
