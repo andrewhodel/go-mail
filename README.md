@@ -30,5 +30,6 @@ ParseTags()
 
 ```
 GO111MODULE=off go get github.com/andrewhodel/go-ip-ac
-sudo GOPATH=/home/ec2-user/go GO111MODULE=off go run mail_server.go
 ```
+
+Run your Go program with `GO111MODULE=off go run program.go` or `sudo GOPATH=/home/ec2-user/go GO111MODULE=off go run program.go` if you need `sudo` access for port numbers lower than 1024.
