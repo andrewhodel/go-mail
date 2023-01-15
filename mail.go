@@ -1,4 +1,4 @@
-package main
+package gomail
 
 import (
 	"crypto/rsa"
@@ -15,13 +15,16 @@ import (
 	"strings"
 	"strconv"
 	"io"
-	"io/ioutil"
-	"encoding/json"
 	"encoding/base64"
 	"mime/quotedprintable"
 	"os"
 	"github.com/andrewhodel/go-ip-ac"
 )
+
+type mail_from_func func(string, string, string, string) bool
+type rcpt_to_func func(string, string, string, string) bool
+type headers_func func(map[string]string, string, string, string) bool
+type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *string, *string)
 
 type Config struct {
 	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
@@ -30,118 +33,6 @@ type Config struct {
 	SslCert				string	`json:"sslCert"`
 	SslCa				string	`json:"sslCa"`
 	Fqdn				string	`json:"fqdn"`
-}
-
-var config Config
-var ip_ac ipac.Ipac
-type mail_from_func func(string, string, string, string) bool
-type rcpt_to_func func(string, string, string, string) bool
-type headers_func func(map[string]string, string, string, string) bool
-type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *string, *string)
-
-func main() {
-
-	ipac.Init(&ip_ac)
-
-	// read the configuration file
-	config_file_data, err := ioutil.ReadFile("./config.json")
-
-	if (err != nil) {
-		fmt.Printf("Error reading configuration file ./config.json: %s\n", err)
-	}
-
-	config_json_err := json.Unmarshal(config_file_data, &config)
-	if (config_json_err != nil) {
-		fmt.Printf("Error decoding ./config.json: %s\n", config_json_err)
-		os.Exit(1)
-	}
-
-	smtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string) bool {
-
-		// from_address		MAIL FROM value
-		// ip			ip address of the sending client
-		// auth_login		ESTMP AUTH login
-		// auth_password	ESTMP AUTH password
-
-		// MAIL FROM
-		fmt.Println("mail from", from_address)
-		fmt.Println("AUTH login", auth_login)
-		fmt.Println("AUTH password", auth_password)
-
-		// get the email local-part and domain
-		//address_parts := strings.Split(from_address, "@")
-		//fmt.Println(address_parts)
-
-		// return true if allowed
-		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
-		return true
-
-	}, func(to_address string, ip string, auth_login string, auth_password string) bool {
-
-		// to_address		RCPT TO value
-		// ip			ip address of the sending client
-		// auth_login		ESTMP AUTH login
-		// auth_password	ESTMP AUTH password
-
-		// RCPT TO
-		fmt.Println("mail to", to_address)
-
-		// return true if allowed
-		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
-		return true
-
-	}, func(headers map[string]string, ip string, auth_login string, auth_password string) bool {
-
-		// headers		parsed headers
-		// ip			ip address of the sending client
-		// auth_login		ESTMP AUTH login
-		// auth_password	ESTMP AUTH password
-
-		// headers
-		// verify the message-id with stored messages to the same address to prevent duplicates
-
-		// you can use smtpParseTags() to parse strings with key=value; parts into a map[string]string
-		fmt.Println("headers")
-		for h := range headers {
-			fmt.Println(h, headers[h])
-		}
-
-		// return true if allowed
-		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
-		return true
-
-	}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, auth_login *string, auth_password *string) {
-
-		// email_data		raw email data as received (headers and body)
-		// headers		parsed headers
-		// parts_headers	headers of each body block
-		// parts		each body block
-		// dkim_valid		true if DKIM validated by the domain's public key
-		// ip			ip address of the sending client
-		// auth_login		ESTMP AUTH login
-		// auth_password	ESTMP AUTH password
-
-		fmt.Println("full email received, length", len(*email_data))
-		fmt.Println("dkim valid:", *dkim_valid)
-		fmt.Println("ip of smtp client", *ip)
-
-		// email is in parts
-		// a part can be an attachment or a body with a different content-type
-		// there is a parts_headers item for each part
-
-		fmt.Println("parts:", len(*parts))
-		for p := range *parts {
-			fmt.Println("###### part:", p)
-			fmt.Println("part headers:", (*parts_headers)[p])
-			if (len((*parts)[p]) > 10000) {
-				fmt.Println(string((*parts)[p][0:10000]))
-			} else {
-				fmt.Println(string((*parts)[p]))
-			}
-		}
-
-	})
-
 }
 
 func smtpParseTags(b []byte) (map[string]string, []string) {
@@ -219,7 +110,7 @@ func smtpParseTags(b []byte) (map[string]string, []string) {
 }
 
 // execute and respond to a command
-func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, mail_from *string, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, mail_from *string, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
@@ -271,7 +162,7 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 
 		// the upgraded conn object is only available in the local scope
 		// start a new smtpHandleClient in the existing go subroutine
-		smtpHandleClient(false, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+		smtpHandleClient(ip_ac, false, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
 	} else if (bytes.Index(c, []byte("EHLO")) == 0 || bytes.Index(c, []byte("HELO")) == 0) {
 
@@ -450,7 +341,7 @@ func smtpExecCmd(using_tls bool, conn net.Conn, tls_config tls.Config, config Co
 
 }
 
-func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls.Config, ip string, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Conn, tls_config tls.Config, ip string, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("new SMTP connection from %s\n", ip)
 
@@ -542,7 +433,7 @@ func smtpHandleClient(is_new bool, using_tls bool, conn net.Conn, tls_config tls
 
 				if (len(line) > 0) {
 					// do not send an empty line to smtpExecCmd()
-					smtpExecCmd(using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &mail_from, &to_address, &parse_data, &total_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+					smtpExecCmd(ip_ac, using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &mail_from, &to_address, &parse_data, &total_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 				}
 
 				if (len(smtp_data) + 2 >= len(line) && len(smtp_data) >= 2 && len(line) + 2 <= len(smtp_data)) {
@@ -1384,7 +1275,7 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 
 		//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
-		go smtpHandleClient(true, false, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+		go smtpHandleClient(ip_ac, true, false, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
 	}
 
@@ -1424,7 +1315,7 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 
 		//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
-		go smtpHandleClient(true, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+		go smtpHandleClient(ip_ac, true, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
 	}
 
