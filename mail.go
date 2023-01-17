@@ -31,7 +31,7 @@ type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *
 type Config struct {
 	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
 	SmtpNonTLSPorts			[]int64	`json:"smtpNonTLSPorts"`
-	PopPort				int64	`json:"popPort"`
+	Pop3Port				int64	`json:"pop3Port"`
 	SslKey				string	`json:"sslKey"`
 	SslCert				string	`json:"sslCert"`
 	SslCa				string	`json:"sslCa"`
@@ -1256,7 +1256,7 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 		os.Exit(1)
 	}
 
-	fmt.Print("SMTP listening on " + strconv.FormatInt(lport, 10) + " with STARTTLS\n")
+	fmt.Print("SMTP (RFC 5321 plus ESMTP extensions) listening on port " + strconv.FormatInt(lport, 10) + " with STARTTLS\n")
 
 	for {
 		conn, err := ln.Accept()
@@ -1294,7 +1294,7 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 		os.Exit(1)
 	}
 
-	fmt.Print("SMTP listening on " + strconv.FormatInt(lport, 10) + " with TLS\n")
+	fmt.Print("SMTP (RFC 5321 plus ESMTP extensions with RFC 8314) listening on port " + strconv.FormatInt(lport, 10) + " with TLS\n")
 
 	for {
 
@@ -1347,31 +1347,31 @@ func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 
 }
 
-func PopServer(config Config, ip_ac ipac.Ipac) {
+func Pop3Server(config Config, ip_ac ipac.Ipac) {
 
 	cert, err := tls.LoadX509KeyPair(config.SslCert, config.SslKey)
 
 	if err != nil {
-		fmt.Printf("pop server did not load TLS certificates: %s", err)
+		fmt.Printf("POP3 server did not load TLS certificates: %s", err)
 		os.Exit(1)
 	}
 
 	srv_config := tls.Config{Certificates: []tls.Certificate{cert}}
 	srv_config.Rand = rand.Reader
-	service := ":" + strconv.FormatInt(config.PopPort, 10)
+	service := ":" + strconv.FormatInt(config.Pop3Port, 10)
 	listener, err := tls.Listen("tcp", service, &srv_config)
 
 	if err != nil {
-		fmt.Printf("POP server error: %s", err)
+		fmt.Printf("POP3 server error: %s", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("POP (RFC 1939 with 8314) listening on port " + strconv.FormatInt(config.PopPort, 10))
+	fmt.Println("POP3 (RFC 1939 with RFC 8314) listening on port " + strconv.FormatInt(config.Pop3Port, 10))
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			//fmt.Printf("POP server: %s", err)
+			//fmt.Printf("POP3 server: %s", err)
 			break
 		}
 		defer conn.Close()
@@ -1386,33 +1386,33 @@ func PopServer(config Config, ip_ac ipac.Ipac) {
 			continue
 		}
 
-		//fmt.Printf("POP server: connection from %s\n", conn.RemoteAddr())
+		//fmt.Printf("POP3 server: connection from %s\n", conn.RemoteAddr())
 
-		go popHandleClient(ip_ac, ip, conn, config)
+		go pop3HandleClient(ip_ac, ip, conn, config)
 	}
 
 }
 
 // write to the connection
-func popCw(conn net.Conn, b []byte) {
+func pop3Cw(conn net.Conn, b []byte) {
 
 	n, err := conn.Write(b)
 
 	_ = n
 	if err != nil {
-		fmt.Printf("POP conn.Write() error: %s\n", err)
+		fmt.Printf("POP3 conn.Write() error: %s\n", err)
 	}
 
 }
 
 // execute and respond to a command
-func popExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string) {
+func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string) {
 
 	// each command can be up to 512 bytes and the buffer is that big
 	// they are ended with \r\n so remove everything from that
 	c = bytes.Split(c, []byte("\r\n"))[0]
 
-	fmt.Printf("POP command: %s\n", c)
+	fmt.Printf("POP3 command: %s\n", c)
 
 	if (bytes.Index(c, []byte("USER")) == 0) {
 
@@ -1470,12 +1470,12 @@ func popExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string) 
 			m.Write([]byte(ss + "asdf"))
 			valid_sum := hex.EncodeToString(m.Sum(nil))
 
-			fmt.Printf("valid md5sum: %s\n", valid_sum)
+			fmt.Printf("POP3 APOP valid md5sum: %s\n", valid_sum)
 
 			// validate credentials
 			if (string(p) == valid_sum && string(u) == "andrew@xyzbots.com") {
 
-				fmt.Println("APOP authenticated")
+				fmt.Println("POP3 APOP authenticated")
 
 				// valid auth
 				ipac.ModifyAuth(&ip_ac, 2, ip)
@@ -1484,7 +1484,7 @@ func popExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string) 
 
 			} else {
 
-				fmt.Println("APOP not authenticated")
+				fmt.Println("POP3 APOP not authenticated")
 
 				// invalid auth
 				ipac.ModifyAuth(&ip_ac, 1, ip)
@@ -1519,7 +1519,7 @@ func popExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string) 
 	} else if (bytes.Index(c, []byte("DELE")) == 0) {
 
 		// DELE N
-		// delete message N, pending pop session end
+		// delete message N, pending pop3 session end
 		conn.Write([]byte("+OK will be deleted\r\n"))
 
 	} else if (bytes.Index(c, []byte("NOOP")) == 0) {
@@ -1548,17 +1548,17 @@ func popExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string) 
 
 }
 
-func popHandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config) {
+func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config) {
 
 	defer conn.Close()
 
 	// create the shared secret or timestamp banner
-	ss := popTimestampBanner(config.Fqdn)
+	ss := pop3TimestampBanner(config.Fqdn)
 
-	fmt.Println("POP client connected")
+	fmt.Println("POP3 client connected")
 
 	// send the first connection message
-	popCw(conn, []byte("+OK POP3 server ready " + ss + "\r\n"))
+	pop3Cw(conn, []byte("+OK POP3 server ready " + ss + "\r\n"))
 
 	buf := make([]byte, 512)
 
@@ -1567,20 +1567,20 @@ func popHandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config) {
 		n, n_err := conn.Read(buf)
 		_ = n
 		if (n_err != nil) {
-			fmt.Printf("POP server: %s\n", n_err)
+			fmt.Printf("POP3 server: %s\n", n_err)
 			break
 		}
 
 		// execute the command, each a maximum of 512 bytes with the final \r\n
-		popExecCmd(ip_ac, ip, conn, buf, ss)
+		pop3ExecCmd(ip_ac, ip, conn, buf, ss)
 
 	}
 
-	fmt.Println("server: conn: closed")
+	fmt.Println("POP3 server connection closed")
 
 }
 
-func popTimestampBanner(fqdn string) (string) {
+func pop3TimestampBanner(fqdn string) (string) {
 
 	/*
 	A POP3 server which implements the APOP command will

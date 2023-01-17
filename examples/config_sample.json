@@ -1,5 +1,5 @@
 {
-"popPort": 995,
+"pop3Port": 995,
 "smtpTLSPorts": [465],
 "smtpNonTLSPorts": [25,587],
 "sslKey": "../keys/domain_com.key",

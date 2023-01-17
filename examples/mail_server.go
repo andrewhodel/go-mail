@@ -120,7 +120,7 @@ func main() {
 
 	})
 
-	gomail.PopServer(config, ip_ac)
+	gomail.Pop3Server(config, ip_ac)
 
 	// keep main thread open
 	select {}
