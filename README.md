@@ -29,6 +29,12 @@ ParseTags()
 
 Passed as an argument to `SmtpServer()` and `Pop3Server()`.
 
+`LoadCertificatesFromFiles = false` will load the certificate data from `SslKey, SslCert and SslCa`.
+
+`LoadCertificatesFromFiles = true` will load the certificate data from the file paths specified in `SslKey, SslCert and SslCa`.
+
+`Fqdn` is the fully qualified domain name of the email server.
+
 ```go
 type Config struct {
 	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
