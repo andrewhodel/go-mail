@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"crypto/rand"
 	"crypto/tls"
-	"crypto/md5"
 	"crypto"
 	"hash"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"strconv"
 	"io"
 	"encoding/base64"
-	"encoding/hex"
 	"mime/quotedprintable"
 	"os"
 	"github.com/andrewhodel/go-ip-ac"
@@ -27,6 +25,7 @@ type mail_from_func func(string, string, string, string) bool
 type rcpt_to_func func(string, string, string, string) bool
 type headers_func func(map[string]string, string, string, string) bool
 type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *string, *string)
+type pop3_auth_func func(string, string, string, string) bool
 
 type Config struct {
 	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
@@ -113,12 +112,12 @@ func ParseTags(b []byte) (map[string]string, []string) {
 }
 
 // execute and respond to a command
-func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, mail_from *string, to_address *string, parse_data *bool, total_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, mail_from *string, to_address *string, parse_data *bool, sent_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
 	if (!*authed) {
-		*total_cmds += 1
+		*sent_cmds += 1
 	}
 
 	if (*login_status == 1) {
@@ -353,10 +352,12 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 	}
 
 	authed := false
-	login_status := 0
 	auth_login := ""
 	auth_password := ""
+	login_status := 0
+
 	parse_data := false
+
 	mail_from := ""
 	to_address := ""
 
@@ -364,21 +365,21 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 	var parts_headers = make([]map[string]string, 0)
 	var parts = make([][]byte, 0)
 
-	total_cmds := 0
-	total_bytes := 0
+	sent_cmds := 0
+	sent_bytes := 0
 
 	smtp_data := make([]byte, 0)
 
 	for {
 
-		if (authed == false && total_cmds > 3) {
+		if (authed == false && sent_cmds > 3) {
 			// should be authorized
 			conn.Write([]byte("221 unauthenticated send limit exceeded\r\n"))
 			conn.Close()
 			break
 		}
 
-		if (authed == false && total_bytes > 400) {
+		if (authed == false && sent_bytes > 400) {
 			// disconnect unauthed connections that have sent more than N bytes
 			conn.Write([]byte("221 unauthenticated send limit exceeded\r\n"))
 			conn.Close()
@@ -387,7 +388,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 		buf := make([]byte, 1400)
 		n, err := conn.Read(buf)
-		total_bytes += n
+		sent_bytes += n
 		if err != nil {
 		    //fmt.Printf("server: conn: read: %s\n", err)
 		    // close connection
@@ -398,7 +399,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 		//fmt.Printf("smtp read length: %d\n", n)
 		//fmt.Println(string(buf))
 
-		if (total_bytes > 1024 * 1000 * 3) {
+		if (sent_bytes > 1024 * 1000 * 3) {
 			//fmt.Println("smtp data too big from ", ip)
 			conn.Write([]byte("221 send limit exceeded\r\n"))
 			conn.Close()
@@ -436,7 +437,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 				if (len(line) > 0) {
 					// do not send an empty line to smtpExecCmd()
-					smtpExecCmd(ip_ac, using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &mail_from, &to_address, &parse_data, &total_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+					smtpExecCmd(ip_ac, using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &mail_from, &to_address, &parse_data, &sent_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 				}
 
 				if (len(smtp_data) + 2 >= len(line) && len(smtp_data) >= 2 && len(line) + 2 <= len(smtp_data)) {
@@ -1347,7 +1348,7 @@ func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 
 }
 
-func Pop3Server(config Config, ip_ac ipac.Ipac) {
+func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func) {
 
 	cert, err := tls.LoadX509KeyPair(config.SslCert, config.SslKey)
 
@@ -1369,6 +1370,7 @@ func Pop3Server(config Config, ip_ac ipac.Ipac) {
 	fmt.Println("POP3 (RFC 1939 with RFC 8314) listening on port " + strconv.FormatInt(config.Pop3Port, 10))
 
 	for {
+
 		conn, err := listener.Accept()
 		if err != nil {
 			//fmt.Printf("POP3 server: %s", err)
@@ -1388,7 +1390,8 @@ func Pop3Server(config Config, ip_ac ipac.Ipac) {
 
 		//fmt.Printf("POP3 server: connection from %s\n", conn.RemoteAddr())
 
-		go pop3HandleClient(ip_ac, ip, conn, config)
+		go pop3HandleClient(ip_ac, ip, conn, config, pop3_auth_func)
+
 	}
 
 }
@@ -1406,7 +1409,7 @@ func pop3Cw(conn net.Conn, b []byte) {
 }
 
 // execute and respond to a command
-func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string) {
+func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string, authed *bool, auth_login *string, auth_password *string, pop3_auth_func pop3_auth_func) {
 
 	// each command can be up to 512 bytes and the buffer is that big
 	// they are ended with \r\n so remove everything from that
@@ -1422,8 +1425,9 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string)
 		if (len(s) != 2) {
 			conn.Write([]byte("-ERR invalid USER command\r\n"))
 		} else {
-			// store the username to test once the password arrives
-			//u := s[1]
+			// store the username
+			*auth_login = string(s[1])
+			// respond with request for password
 			conn.Write([]byte("+OK try PASS\r\n"))
 		}
 
@@ -1435,14 +1439,27 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string)
 		if (len(s) != 2) {
 			conn.Write([]byte("-ERR invalid PASS command\r\n"))
 		} else {
-			// test the stored username and this password
-			//u := conn_struct.existing_username
-			p := s[1]
-			if (string(p) == "asdf") {
+			// validate the login credentials
+			*auth_password = string(s[1])
+			*authed = pop3_auth_func(ip, *auth_login, *auth_password, "")
+
+			if (*authed == true) {
+
+				// invalid auth
+				ipac.ModifyAuth(&ip_ac, 2, ip)
+
 				conn.Write([]byte("+OK logged in\r\n"))
+
 			} else {
+
+				// invalid auth
+				ipac.ModifyAuth(&ip_ac, 1, ip)
+
 				conn.Write([]byte("-ERR invalid credentialsr\n"))
+				conn.Close()
+
 			}
+
 		}
 
 	} else if (bytes.Index(c, []byte("AUTH")) == 0) {
@@ -1459,23 +1476,15 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string)
 			conn.Write([]byte("-ERR invalid APOP command\r\n"))
 		} else {
 
-			//fmt.Printf("%q\n", s)
+			*auth_login = string(s[1])
+			*auth_password = string(s[2])
 
-			u := s[1]
-			p := s[2]
+			// validate credentials with closure
+			*authed = pop3_auth_func(ip, *auth_login, *auth_password, ss)
 
-			// the password should be the stored users password and the shared secret
-			// md5sum(ss + password)
-			m := md5.New()
-			m.Write([]byte(ss + "asdf"))
-			valid_sum := hex.EncodeToString(m.Sum(nil))
+			if (*authed == true) {
 
-			fmt.Printf("POP3 APOP valid md5sum: %s\n", valid_sum)
-
-			// validate credentials
-			if (string(p) == valid_sum && string(u) == "andrew@xyzbots.com") {
-
-				fmt.Println("POP3 APOP authenticated")
+				//fmt.Println("POP3 APOP authenticated")
 
 				// valid auth
 				ipac.ModifyAuth(&ip_ac, 2, ip)
@@ -1484,12 +1493,13 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string)
 
 			} else {
 
-				fmt.Println("POP3 APOP not authenticated")
+				//fmt.Println("POP3 APOP not authenticated")
 
 				// invalid auth
 				ipac.ModifyAuth(&ip_ac, 1, ip)
 
 				conn.Write([]byte("-ERR invalid credentials\r\n"))
+				conn.Close()
 
 			}
 
@@ -1500,23 +1510,23 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string)
 		// respond with capabilities line by line, ended with a .
 		conn.Write([]byte("+OK\r\nCAPA\r\nAPOP\r\nUSER\r\n.\r\n"))
 
-	} else if (bytes.Index(c, []byte("STAT")) == 0) {
+	} else if (bytes.Index(c, []byte("STAT")) == 0 && *authed == true) {
 
 		// respond with number of messages and collective size in bytes
 		conn.Write([]byte("+OK 0 0\r\n"))
 
-	} else if (bytes.Index(c, []byte("LIST")) == 0) {
+	} else if (bytes.Index(c, []byte("LIST")) == 0 && *authed == true) {
 
 		// returns a list of all messages in the inbox, their message number (identifier) and size in bytes
 		// if LIST has a parameter that is an integer, LIST 1 then only return that message
 		// +OK 1 4444
 		conn.Write([]byte("+OK 1 messages:\r\n1 4444\r\n.\r\n"))
 
-	} else if (bytes.Index(c, []byte("RETR")) == 0) {
+	} else if (bytes.Index(c, []byte("RETR")) == 0 && *authed == true) {
 
 		conn.Write([]byte("+OK 0 octets\r\n.\r\n"))
 
-	} else if (bytes.Index(c, []byte("DELE")) == 0) {
+	} else if (bytes.Index(c, []byte("DELE")) == 0 && *authed == true) {
 
 		// DELE N
 		// delete message N, pending pop3 session end
@@ -1527,7 +1537,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string)
 		// this is similar to a keep-alive
 		conn.Write([]byte("+OK\r\n"))
 
-	} else if (bytes.Index(c, []byte("RSET")) == 0) {
+	} else if (bytes.Index(c, []byte("RSET")) == 0 && *authed == true) {
 
 		// reset all pending delete operations
 		// no messages will be deleted
@@ -1548,7 +1558,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string)
 
 }
 
-func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config) {
+func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, pop3_auth_func pop3_auth_func) {
 
 	defer conn.Close()
 
@@ -1560,19 +1570,43 @@ func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config) 
 	// send the first connection message
 	pop3Cw(conn, []byte("+OK POP3 server ready " + ss + "\r\n"))
 
+	sent_cmds := 0
+	sent_bytes := 0
+
+	authed := false
+	auth_login := ""
+	auth_password := ""
+
 	buf := make([]byte, 512)
 
 	for {
 
+		if (sent_cmds > 5 && authed == false) {
+			// too many commands while not authenticated
+			conn.Write([]byte("-ERR unauthenticated send limit exceeded\r\n"))
+			conn.Close()
+			break
+		}
+
 		n, n_err := conn.Read(buf)
-		_ = n
+		sent_bytes += n
+
+		if (sent_bytes > 1024 * 1000 * 3) {
+			// client sent too much data
+			conn.Write([]byte("-ERR unauthenticated send limit exceeded\r\n"))
+			conn.Close()
+			break
+		}
+
 		if (n_err != nil) {
 			fmt.Printf("POP3 server: %s\n", n_err)
 			break
 		}
 
+		sent_cmds += 1
+
 		// execute the command, each a maximum of 512 bytes with the final \r\n
-		pop3ExecCmd(ip_ac, ip, conn, buf, ss)
+		pop3ExecCmd(ip_ac, ip, conn, buf, ss, &authed, &auth_login, &auth_password, pop3_auth_func)
 
 	}
 

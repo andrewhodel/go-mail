@@ -4,6 +4,8 @@ import (
 	"io/ioutil"
 	"fmt"
 	"encoding/json"
+	"crypto/md5"
+	"encoding/hex"
 	"os"
 	"github.com/andrewhodel/go-ip-ac"
 	"github.com/andrewhodel/go-mail"
@@ -120,7 +122,41 @@ func main() {
 
 	})
 
-	gomail.Pop3Server(config, ip_ac)
+	gomail.Pop3Server(config, ip_ac, func(ip string, auth_login string, auth_password string, shared_secret string) bool {
+
+		// ip			ip address
+		// auth_login		login
+		// auth_password	password
+
+		fmt.Println("POP3 server auth login", auth_login, "password", auth_password, "shared_secret", shared_secret)
+
+		if (shared_secret != "") {
+			// if there is a shared secret, the APOP command is being used
+
+			// validate the username and get the known password
+
+			// prepend shared_secret to the known password and the md5sum as a hex value will match auth_password if the sent password is valid
+			m := md5.New()
+			m.Write([]byte(shared_secret + "asdf"))
+			valid_sum := hex.EncodeToString(m.Sum(nil))
+
+			fmt.Println("valid_sum", valid_sum)
+
+			if (valid_sum == auth_password) {
+				return true
+			} else {
+				return false
+			}
+
+		}
+
+		// there is no shared secret, validate auth_login and auth_password
+
+		// return true if allowed
+		// return false to disconnect the socket and add an invalid auth to ip_ac
+		return true
+
+	})
 
 	// keep main thread open
 	select {}
