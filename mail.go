@@ -1407,7 +1407,7 @@ func pop3Cw(conn net.Conn, b []byte) {
 
 	_ = n
 	if err != nil {
-		fmt.Printf("POP3 conn.Write() error: %s\n", err)
+		//fmt.Printf("POP3 conn.Write() error: %s\n", err)
 	}
 
 }
@@ -1419,7 +1419,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 	// they are ended with \r\n so remove everything from that
 	c = bytes.Split(c, []byte("\r\n"))[0]
 
-	fmt.Printf("POP3 command: %s\n", c)
+	//fmt.Printf("POP3 command: %s\n", c)
 
 	if (bytes.Index(c, []byte("USER")) == 0) {
 
@@ -1612,7 +1612,7 @@ func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, 
 	// create the shared secret or timestamp banner
 	ss := pop3TimestampBanner(config.Fqdn)
 
-	fmt.Println("POP3 client connected")
+	//fmt.Println("POP3 client connected")
 
 	// send the first connection message
 	pop3Cw(conn, []byte("+OK POP3 server ready " + ss + "\r\n"))
@@ -1646,7 +1646,7 @@ func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, 
 		}
 
 		if (n_err != nil) {
-			fmt.Printf("POP3 server: %s\n", n_err)
+			//fmt.Printf("POP3 server: %s\n", n_err)
 			break
 		}
 
@@ -1657,7 +1657,7 @@ func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, 
 
 	}
 
-	fmt.Println("POP3 server connection closed")
+	//fmt.Println("POP3 server connection closed")
 
 }
 
