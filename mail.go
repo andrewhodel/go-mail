@@ -26,8 +26,8 @@ type rcpt_to_func func(string, string, string, string) bool
 type headers_func func(map[string]string, string, string, string) bool
 type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *string, *string)
 type pop3_auth_func func(string, string, string, string) bool
-type pop3_stat_func func(string) (uint64, uint64)
-type pop3_list_func func(string) (uint64, []uint64)
+type pop3_stat_func func(string) (string, string)
+type pop3_list_func func(string) (string, []string, []string)
 type pop3_retr_func func(string, string) string
 type pop3_dele_func func(string, string) (bool, string)
 
@@ -1518,7 +1518,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 
 		// respond with number of messages and total size of all messages in bytes
 		n_messages, messages_size := pop3_stat_func(*auth_login)
-		conn.Write([]byte("+OK " + strconv.FormatUint(n_messages, 10) + " " + strconv.FormatUint(messages_size, 10) + "\r\n"))
+		conn.Write([]byte("+OK " + n_messages + " " + messages_size + "\r\n"))
 
 	} else if (bytes.Index(c, []byte("LIST")) == 0 && *authed == true) {
 
@@ -1529,14 +1529,20 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 		// 2 50
 		// .
 		//
-		total_size, msg_lengths := pop3_list_func(*auth_login)
+		// all message ids are strings to allow larger than the uint64 maximum value as message ids
+		total_size, msg_ids, msg_lengths := pop3_list_func(*auth_login)
+
+		if (len(msg_ids) != len(msg_lengths)) {
+			fmt.Println("POP3 LIST response []string values for message identifiers and lengths are not the same length")
+			os.Exit(1)
+		}
 
 		// build the response
-		var s = "+OK " + strconv.FormatUint(uint64(len(msg_lengths)), 10) + " messages (" + strconv.FormatUint(total_size, 10) + " octets)"
+		var s = "+OK " + strconv.FormatUint(uint64(len(msg_lengths)), 10) + " messages (" + total_size + " octets)"
 
 		for m := range msg_lengths {
-			// message identifier must start with 1
-			s += "\r\n" + strconv.FormatUint(uint64(m) + 1, 10) + " " + strconv.FormatUint(msg_lengths[m], 10)
+			// message identifiers must be whole numbers
+			s += "\r\n" + msg_ids[m] + " " + msg_lengths[m]
 		}
 
 		s += "\r\n.\r\n"

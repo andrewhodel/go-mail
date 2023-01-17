@@ -156,7 +156,7 @@ func main() {
 		// return false to disconnect the socket and add an invalid auth to ip_ac
 		return true
 
-	}, func(auth_login string) (uint64, uint64) {
+	}, func(auth_login string) (string, string) {
 
 		// STAT
 		// auth_login		login
@@ -164,19 +164,22 @@ func main() {
 		fmt.Println("POP3 STAT", auth_login)
 
 		// return the total message count and size of all messages in bytes
-		return 1, 5
+		// strings allow larger than uint64 max values
+		return "1", "5"
 
-	}, func(auth_login string) (uint64, []uint64) {
+	}, func(auth_login string) (string, []string, []string) {
 
 		// LIST
 		// auth_login		login
 
 		fmt.Println("POP3 LIST", auth_login)
 
-		// return total size in bytes of all messages, and the size of each message in bytes as a []uint64
-		// each message is assigned a sequential identifier for this POP3 session that is a whole number, beginning with 1
-		// the message identifiers are used to identify messages in the RETR and DELE commands
-		return 5, []uint64{5}
+		// each message needs an identifier that is a whole number, beginning with 1
+		// the message identifiers are used to identify messages in the RETR and DELE commands by POP3 clients
+
+		// return total size in bytes of all messages, the message identifiers and the size of each message in bytes
+		// strings allow larger than uint64 max values
+		return "5", []string{"1"}, []string{"5"}
 
 	}, func(auth_login string, msg_id string) string {
 
