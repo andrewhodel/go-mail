@@ -161,16 +161,22 @@ func main() {
 		// STAT
 		// auth_login		login
 
-		// return the total message count and size of all messages in bytes
-		return 0, 0
+		fmt.Println("POP3 STAT", auth_login)
 
-	}, func(auth_login string) (uint64, []string, []uint64) {
+		// return the total message count and size of all messages in bytes
+		return 1, 5
+
+	}, func(auth_login string) (uint64, []uint64) {
 
 		// LIST
 		// auth_login		login
 
-		// return number of messages, each message id and size
-		return 0, []string{}, []uint64{}
+		fmt.Println("POP3 LIST", auth_login)
+
+		// return total size in bytes of all messages, and the size of each message in bytes as a []uint64
+		// each message is assigned a sequential identifier for this POP3 session that is a whole number, beginning with 1
+		// the message identifiers are used to identify messages in the RETR and DELE commands
+		return 5, []uint64{5}
 
 	}, func(auth_login string, msg_id string) string {
 
@@ -178,8 +184,10 @@ func main() {
 		// auth_login		login
 		// msg_id		message identifier
 
+		fmt.Println("POP3 RETR", auth_login, "message identifier", msg_id)
+
 		// get the message and return it as a string
-		return ""
+		return "12345"
 
 	}, func(auth_login string, msg_id string) (bool, string) {
 
@@ -187,8 +195,10 @@ func main() {
 		// auth_login		login
 		// msg_id		message identifier
 
+		fmt.Println("POP3 DELE", auth_login, "message identifier", msg_id)
+
 		// delete the message and return the message deleted status and error message if the message was not deleted
-		return false, ""
+		return true, ""
 
 	})
 

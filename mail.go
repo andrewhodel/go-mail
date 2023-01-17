@@ -27,7 +27,7 @@ type headers_func func(map[string]string, string, string, string) bool
 type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *string, *string)
 type pop3_auth_func func(string, string, string, string) bool
 type pop3_stat_func func(string) (uint64, uint64)
-type pop3_list_func func(string) (uint64, []string, []uint64)
+type pop3_list_func func(string) (uint64, []uint64)
 type pop3_retr_func func(string, string) string
 type pop3_dele_func func(string, string) (bool, string)
 
@@ -1523,35 +1523,25 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 	} else if (bytes.Index(c, []byte("LIST")) == 0 && *authed == true) {
 
 		// returns a list of all messages in the inbox
-		// each with the message identifier and the size
+		// each with the message identifier (must be whole numbers starting with 1) and the size
 		// +OK 2 messages (250 octets)
-		// fldhjgs 200
-		// aaaaaaa 50
+		// 1 200
+		// 2 50
 		// .
 		//
-		total_size, msg_ids, msg_lengths := pop3_list_func(*auth_login)
+		total_size, msg_lengths := pop3_list_func(*auth_login)
 
-		if (len(msg_ids) != len(msg_lengths)) {
-			// all of the message ids and message lengths were not provided
-			conn.Write([]byte("-ERR server error\r\n"))
-			conn.Close()
-			fmt.Println("go-mail POP3 closure for LIST received different slice lengths of message identifiers and message lengths")
-			os.Exit(1)
-		} else {
-			// valid
+		// build the response
+		var s = "+OK " + strconv.FormatUint(uint64(len(msg_lengths)), 10) + " messages (" + strconv.FormatUint(total_size, 10) + " octets)"
 
-			// construct the message response
-			var s = "+OK " + strconv.FormatUint(uint64(len(msg_ids)), 10) + " (" + strconv.FormatUint(total_size, 10) + " octets)"
-
-			for m := range msg_ids {
-				s += "\r\n" + msg_ids[m] + " " + strconv.FormatUint(msg_lengths[m], 10)
-			}
-
-			s += "\r\n.\r\n"
-
-			conn.Write([]byte(s))
-
+		for m := range msg_lengths {
+			// message identifier must start with 1
+			s += "\r\n" + strconv.FormatUint(uint64(m) + 1, 10) + " " + strconv.FormatUint(msg_lengths[m], 10)
 		}
+
+		s += "\r\n.\r\n"
+
+		conn.Write([]byte(s))
 
 	} else if (bytes.Index(c, []byte("RETR")) == 0 && *authed == true) {
 
