@@ -1,12 +1,16 @@
 # go-mail
 
-Email in a go module
+Email in a Go module.
 
+Include the module and easily integrate an email server using closures (callbacks).
+
+```
 * SMTP {RFC 5321} (with {RFC 8314} and without TLS)
 * ESTMP Extensions (8BITMIME, AUTH, STARTTLS, ENHANCEDSTATUSCODE, PIPELINING, SMTPUTF8)
 * DKIM {RFC 6376}
 
 * POP3 {RFC 1939} (with {RFC 8314} TLS)
+```
 
 # functions
 
