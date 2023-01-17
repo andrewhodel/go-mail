@@ -38,6 +38,7 @@ type Config struct {
 	SslKey				string	`json:"sslKey"`
 	SslCert				string	`json:"sslCert"`
 	SslCa				string	`json:"sslCa"`
+	LoadCertificatesFromFiles	bool	`json:"loadCertificatesFromFiles"`
 	Fqdn				string	`json:"fqdn"`
 }
 ```

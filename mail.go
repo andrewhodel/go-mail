@@ -52,6 +52,7 @@ type Config struct {
 	SslKey				string	`json:"sslKey"`
 	SslCert				string	`json:"sslCert"`
 	SslCa				string	`json:"sslCa"`
+	LoadCertificatesFromFiles	bool	`json:"loadCertificatesFromFiles"`
 	Fqdn				string	`json:"fqdn"`
 }
 
@@ -1347,10 +1348,16 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 
 func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
-	cert, err := tls.LoadX509KeyPair(config.SslCert, config.SslKey)
+	var cert tls.Certificate
+	var err error
+	if (config.LoadCertificatesFromFiles == true) {
+		cert, err = tls.LoadX509KeyPair(config.SslCert, config.SslKey)
+	} else {
+		cert, err = tls.X509KeyPair([]byte(config.SslCert), []byte(config.SslKey))
+	}
 
 	if err != nil {
-		fmt.Printf("server: loadkeys: %s\n", err)
+		fmt.Printf("SMTP server did not load TLS certificates: %s", err)
 		os.Exit(1)
 	}
 
@@ -1370,7 +1377,13 @@ func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 
 func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
-	cert, err := tls.LoadX509KeyPair(config.SslCert, config.SslKey)
+	var cert tls.Certificate
+	var err error
+	if (config.LoadCertificatesFromFiles == true) {
+		cert, err = tls.LoadX509KeyPair(config.SslCert, config.SslKey)
+	} else {
+		cert, err = tls.X509KeyPair([]byte(config.SslCert), []byte(config.SslKey))
+	}
 
 	if err != nil {
 		fmt.Printf("POP3 server did not load TLS certificates: %s", err)
