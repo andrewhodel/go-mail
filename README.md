@@ -2,10 +2,11 @@
 
 Email in a go module
 
-* SMTP (with and without TLS)
+* SMTP {RFC 5321} (with {RFC 8314} and without TLS)
 * ESTMP Extensions (8BITMIME, AUTH, STARTTLS, ENHANCEDSTATUSCODE, PIPELINING, SMTPUTF8)
-* POP (TLS)
-* DKIM
+* DKIM {RFC 6376}
+
+* POP3 {RFC 1939} (with {RFC 8314} TLS)
 
 # functions
 
