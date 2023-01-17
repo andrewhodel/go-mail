@@ -156,6 +156,40 @@ func main() {
 		// return false to disconnect the socket and add an invalid auth to ip_ac
 		return true
 
+	}, func(auth_login string) (uint64, uint64) {
+
+		// STAT
+		// auth_login		login
+
+		// return the total message count and size of all messages in bytes
+		return 0, 0
+
+	}, func(auth_login string) (uint64, []string, []uint64) {
+
+		// LIST
+		// auth_login		login
+
+		// return number of messages, each message id and size
+		return 0, []string{}, []uint64{}
+
+	}, func(auth_login string, msg_id string) string {
+
+		// RETR retrieve message by id
+		// auth_login		login
+		// msg_id		message identifier
+
+		// get the message and return it as a string
+		return ""
+
+	}, func(auth_login string, msg_id string) (bool, string) {
+
+		// DELE
+		// auth_login		login
+		// msg_id		message identifier
+
+		// delete the message and return the message deleted status and error message if the message was not deleted
+		return false, ""
+
 	})
 
 	// keep main thread open

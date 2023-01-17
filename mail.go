@@ -26,11 +26,15 @@ type rcpt_to_func func(string, string, string, string) bool
 type headers_func func(map[string]string, string, string, string) bool
 type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *string, *string)
 type pop3_auth_func func(string, string, string, string) bool
+type pop3_stat_func func(string) (uint64, uint64)
+type pop3_list_func func(string) (uint64, []string, []uint64)
+type pop3_retr_func func(string, string) string
+type pop3_dele_func func(string, string) (bool, string)
 
 type Config struct {
 	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
 	SmtpNonTLSPorts			[]int64	`json:"smtpNonTLSPorts"`
-	Pop3Port				int64	`json:"pop3Port"`
+	Pop3Port			int64	`json:"pop3Port"`
 	SslKey				string	`json:"sslKey"`
 	SslCert				string	`json:"sslCert"`
 	SslCa				string	`json:"sslCa"`
@@ -1348,7 +1352,7 @@ func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 
 }
 
-func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func) {
+func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
 	cert, err := tls.LoadX509KeyPair(config.SslCert, config.SslKey)
 
@@ -1390,7 +1394,7 @@ func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func) {
 
 		//fmt.Printf("POP3 server: connection from %s\n", conn.RemoteAddr())
 
-		go pop3HandleClient(ip_ac, ip, conn, config, pop3_auth_func)
+		go pop3HandleClient(ip_ac, ip, conn, config, pop3_auth_func, pop3_stat_func, pop3_list_func, pop3_retr_func, pop3_dele_func)
 
 	}
 
@@ -1409,7 +1413,7 @@ func pop3Cw(conn net.Conn, b []byte) {
 }
 
 // execute and respond to a command
-func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string, authed *bool, auth_login *string, auth_password *string, pop3_auth_func pop3_auth_func) {
+func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string, authed *bool, auth_login *string, auth_password *string, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
 	// each command can be up to 512 bytes and the buffer is that big
 	// they are ended with \r\n so remove everything from that
@@ -1512,25 +1516,70 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 
 	} else if (bytes.Index(c, []byte("STAT")) == 0 && *authed == true) {
 
-		// respond with number of messages and collective size in bytes
-		conn.Write([]byte("+OK 0 0\r\n"))
+		// respond with number of messages and total size of all messages in bytes
+		n_messages, messages_size := pop3_stat_func(*auth_login)
+		conn.Write([]byte("+OK " + strconv.FormatUint(n_messages, 10) + " " + strconv.FormatUint(messages_size, 10) + "\r\n"))
 
 	} else if (bytes.Index(c, []byte("LIST")) == 0 && *authed == true) {
 
-		// returns a list of all messages in the inbox, their message number (identifier) and size in bytes
-		// if LIST has a parameter that is an integer, LIST 1 then only return that message
-		// +OK 1 4444
-		conn.Write([]byte("+OK 1 messages:\r\n1 4444\r\n.\r\n"))
+		// returns a list of all messages in the inbox
+		// each with the message identifier and the size
+		// +OK 2 messages (250 octets)
+		// fldhjgs 200
+		// aaaaaaa 50
+		// .
+		//
+		total_size, msg_ids, msg_lengths := pop3_list_func(*auth_login)
+
+		if (len(msg_ids) != len(msg_lengths)) {
+			// all of the message ids and message lengths were not provided
+			conn.Write([]byte("-ERR server error\r\n"))
+			conn.Close()
+			fmt.Println("go-mail POP3 closure for LIST received different slice lengths of message identifiers and message lengths")
+			os.Exit(1)
+		} else {
+			// valid
+
+			// construct the message response
+			var s = "+OK " + strconv.FormatUint(uint64(len(msg_ids)), 10) + " (" + strconv.FormatUint(total_size, 10) + " octets)"
+
+			for m := range msg_ids {
+				s += "\r\n" + msg_ids[m] + " " + strconv.FormatUint(msg_lengths[m], 10)
+			}
+
+			s += "\r\n.\r\n"
+
+			conn.Write([]byte(s))
+
+		}
 
 	} else if (bytes.Index(c, []byte("RETR")) == 0 && *authed == true) {
 
-		conn.Write([]byte("+OK 0 octets\r\n.\r\n"))
+		// RETR ID
+		s := bytes.Split(c, []byte(" "))
+		if (len(s) == 2) {
+			// send message
+			msg := pop3_retr_func(*auth_login, string(s[1]))
+			conn.Write([]byte("+OK " + strconv.FormatUint(uint64(len(msg)), 10) + " octets\r\n" + msg + "\r\n.\r\n"))
+		} else {
+			conn.Write([]byte("-ERR invalid RETR command\r\n"))
+		}
 
 	} else if (bytes.Index(c, []byte("DELE")) == 0 && *authed == true) {
 
-		// DELE N
-		// delete message N, pending pop3 session end
-		conn.Write([]byte("+OK will be deleted\r\n"))
+		// DELE ID
+		s := bytes.Split(c, []byte(" "))
+		if (len(s) == 2) {
+			// delete message N
+			msg_deleted, delete_error := pop3_dele_func(*auth_login, string(s[1]))
+			if (msg_deleted == true) {
+				conn.Write([]byte("+OK deleted\r\n"))
+			} else {
+				conn.Write([]byte("-ERR deleting message: " + delete_error + "\r\n"))
+			}
+		} else {
+			conn.Write([]byte("-ERR invalid DELE command\r\n"))
+		}
 
 	} else if (bytes.Index(c, []byte("NOOP")) == 0) {
 
@@ -1540,13 +1589,11 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 	} else if (bytes.Index(c, []byte("RSET")) == 0 && *authed == true) {
 
 		// reset all pending delete operations
-		// no messages will be deleted
 		conn.Write([]byte("+OK\r\n"))
 
 	} else if (bytes.Index(c, []byte("QUIT")) == 0) {
 
-		// logout, client should close the connection
-		// the server might as well also
+		// end connection
 		conn.Write([]byte("+OK logging out\r\n"))
 		conn.Close()
 
@@ -1558,7 +1605,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 
 }
 
-func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, pop3_auth_func pop3_auth_func) {
+func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
 	defer conn.Close()
 
@@ -1606,7 +1653,7 @@ func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, 
 		sent_cmds += 1
 
 		// execute the command, each a maximum of 512 bytes with the final \r\n
-		pop3ExecCmd(ip_ac, ip, conn, buf, ss, &authed, &auth_login, &auth_password, pop3_auth_func)
+		pop3ExecCmd(ip_ac, ip, conn, buf, ss, &authed, &auth_login, &auth_password, pop3_auth_func, pop3_stat_func, pop3_list_func, pop3_retr_func, pop3_dele_func)
 
 	}
 
