@@ -25,6 +25,23 @@ ParseTags()
 	Parse string with key=value tags to map[string]string
 ```
 
+# Configuration Struct
+
+Passed as an argument to `SmtpServer()` and `Pop3Server()`.
+
+```go
+type Config struct {
+	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
+	SmtpNonTLSPorts			[]int64	`json:"smtpNonTLSPorts"`
+	SmtpMaxEmailSize		uint64	`json:"smtpMaxEmailSize"`
+	Pop3Port			int64	`json:"pop3Port"`
+	SslKey				string	`json:"sslKey"`
+	SslCert				string	`json:"sslCert"`
+	SslCa				string	`json:"sslCa"`
+	Fqdn				string	`json:"fqdn"`
+}
+```
+
 # SMTP Server
 
 ```go

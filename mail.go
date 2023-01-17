@@ -47,6 +47,7 @@ type pop3_dele_func func(string, string) (bool, string)
 type Config struct {
 	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
 	SmtpNonTLSPorts			[]int64	`json:"smtpNonTLSPorts"`
+	SmtpMaxEmailSize		uint64	`json:"smtpMaxEmailSize"`
 	Pop3Port			int64	`json:"pop3Port"`
 	SslKey				string	`json:"sslKey"`
 	SslCert				string	`json:"sslCert"`
@@ -407,21 +408,14 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 		n, err := conn.Read(buf)
 		sent_bytes += n
 		if err != nil {
-		    //fmt.Printf("server: conn: read: %s\n", err)
-		    // close connection
-		    conn.Close()
-		    break
+			//fmt.Printf("server: conn: read: %s\n", err)
+			// close connection
+			conn.Close()
+			break
 		}
 
 		//fmt.Printf("smtp read length: %d\n", n)
 		//fmt.Println(string(buf))
-
-		if (sent_bytes > 1024 * 1000 * 3) {
-			//fmt.Println("smtp data too big from ", ip)
-			conn.Write([]byte("221 send limit exceeded\r\n"))
-			conn.Close()
-			break
-		}
 
 		// set buf to read length
 		buf = buf[:n]
@@ -429,6 +423,13 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 		// add buf to smtp_data
 		for l := range buf {
 			smtp_data = append(smtp_data, buf[l])
+		}
+
+		if (uint64(len(smtp_data)) > config.SmtpMaxEmailSize) {
+			//fmt.Println("smtp data too big from ", ip)
+			conn.Write([]byte("221 send limit exceeded\r\n"))
+			conn.Close()
+			break
 		}
 
 		if (parse_data == false) {
@@ -1254,6 +1255,8 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 				// none of the data passed in the pointers should be accessed after this
 				// because it is sent in a pointer to a user level closure of a module
 				full_message_func(&smtp_data, &headers, &parts_headers, &parts, &dkim_valid, &ip, &auth_login, &auth_password)
+
+				smtp_data = nil
 
 			}
 
