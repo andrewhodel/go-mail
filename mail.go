@@ -1357,7 +1357,7 @@ func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 	}
 
 	if err != nil {
-		fmt.Printf("SMTP server did not load TLS certificates: %s", err)
+		fmt.Printf("SMTP server did not load TLS certificates: %s\n", err)
 		os.Exit(1)
 	}
 
@@ -1386,7 +1386,7 @@ func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func, p
 	}
 
 	if err != nil {
-		fmt.Printf("POP3 server did not load TLS certificates: %s", err)
+		fmt.Printf("POP3 server did not load TLS certificates: %s\n", err)
 		os.Exit(1)
 	}
 
