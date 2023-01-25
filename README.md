@@ -2,10 +2,10 @@
 
 Email in a Go module.
 
-Include the module and easily integrate an email server using closures (callbacks).
+Include the module and easily integrate an email client or a server with closures (callbacks).
 
 ```
-* SMTP {RFC 5321} (with {RFC 8314} and without TLS)
+* SMTP Client and Server {RFC 5321} (with {RFC 8314} and without TLS)
 * ESTMP Extensions (8BITMIME, AUTH, STARTTLS, ENHANCEDSTATUSCODE, PIPELINING, SMTPUTF8)
 * DKIM {RFC 6376}
 
@@ -15,6 +15,9 @@ Include the module and easily integrate an email server using closures (callback
 # Functions
 
 ```go
+SendMail()
+	SMTP Client that supports DKIM, ESMTP AUTH and STARTTLS
+
 SmtpServer()
 	Start SMTP Server(s) with or without TLS
 
@@ -25,7 +28,41 @@ ParseTags()
 	Parse string with key=value tags to map[string]string
 ```
 
-# Configuration Struct
+# SMTP Client
+
+Read `examples/send_mail.go`
+
+```go
+// func SendMail()
+//
+// sending_host_string		string			fqdn or hostname of the client (sending) host
+// username			string			ESMTP AUTH username
+// password			string			ESMTP AUTH password
+// receiving_host_tls_config	*tls.Config		TLS Config of the server
+// receiving_host		string			server address
+// port				int			server port, 25 does not use TLS by default
+// from				mail.Address
+// to				[]mail.Address		list of addresses sent to and in the to header
+// cc				[]mail.Address		list of addresses sent to and in the cc header
+// bcc				[]mail.Address		list of addresses sent to and in the bcc header
+// subj				string
+// body				string
+// dkim_private_key		string			DKIM private key (private key to use to sign the DKIM headers in the email)
+// dkim_domain			string			DKIM domain (address of DKIM public key TXT record)
+// dkim_signing_algo		string			DKIM signing algorithm (rsa-sha256 supported)
+
+var to []mail.Address
+to = append(to, mail.Address{"Andrew Hodel", "andrew@xyzbots.com"})
+err := gomail.SendMail("localhost", "user", "pass", nil, "xyzbots.com", 25, nil, mail.Address{"", "newuser@unknown.unknown_tld"}, to, nil, nil, "New go-mail user", "New go-mail user.", "", "", "")
+
+if (err != nil) {
+	fmt.Println("gomail.SendMail() error:", err)
+} else {
+	fmt.Println("email received by server")
+}
+```
+
+# Server Configuration Struct
 
 Passed as an argument to `SmtpServer()` and `Pop3Server()`.
 
@@ -50,6 +87,8 @@ type Config struct {
 ```
 
 # SMTP Server
+
+Read `examples/mail_server.go`
 
 ```go
 gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string) bool {
@@ -140,6 +179,8 @@ gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login
 ```
 
 # POP3 Server
+
+Read `examples/mail_server.go`
 
 ```go
 gomail.Pop3Server(config, ip_ac, func(ip string, auth_login string, auth_password string, shared_secret string) bool {

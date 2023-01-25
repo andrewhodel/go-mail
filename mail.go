@@ -24,6 +24,8 @@ import (
 	"hash"
 	"fmt"
 	"net"
+	"net/smtp"
+	"net/mail"
 	"bytes"
 	"strings"
 	"strconv"
@@ -54,6 +56,12 @@ type Config struct {
 	SslCa				string	`json:"sslCa"`
 	LoadCertificatesFromFiles	bool	`json:"loadCertificatesFromFiles"`
 	Fqdn				string	`json:"fqdn"`
+}
+
+type Esmtp struct {
+	Name				string
+	Parts				[]string
+
 }
 
 func ParseTags(b []byte) (map[string]string, []string) {
@@ -1709,5 +1717,367 @@ func pop3TimestampBanner(fqdn string) (string) {
 	timestamp_banner := "<1896." + strconv.FormatInt(time.Now().Unix(), 10) + "@" + fqdn + ">"
 
 	return timestamp_banner
+
+}
+
+func SendMail(sending_host string, username string, password string, receiving_host_tls_config *tls.Config, receiving_host string, port int, auth smtp.Auth, from mail.Address, to []mail.Address, cc []mail.Address, bcc []mail.Address, subj string, body string, dkim_private_key string, dkim_domain string, dkim_signing_algo string) error {
+
+	if (dkim_private_key != "" && dkim_domain != "" && dkim_signing_algo != "") {
+
+		// dkim_private_key             string                  DKIM private key (private key to use to sign the DKIM headers in the email)
+		// dkim_domain                  string                  DKIM domain (address of DKIM public key TXT record)
+		// dkim_signing_algo            string                  DKIM signing algorithm (rsa-sha256 supported)
+
+		// create DKIM header
+
+	}
+
+	// Setup headers
+	headers := make(map[string]string)
+	headers["From"] = from.String()
+
+	if (len(to) > 0) {
+		var th = ""
+		for i := range to {
+			th += to[i].String() + ","
+		}
+		th = strings.TrimRight(th, ",")
+		headers["To"] = th
+	}
+
+	if (len(cc) > 0) {
+		var cch = ""
+		for i := range cc {
+			cch += cc[i].String() + ","
+		}
+		cch = strings.TrimRight(cch, ",")
+		headers["Cc"] = cch
+	}
+
+	if (len(bcc) > 0) {
+		var bcch = ""
+		for i := range bcc {
+			bcch += bcc[i].String() + ","
+		}
+		bcch = strings.TrimRight(bcch, ",")
+		headers["Bcc"] = bcch
+	}
+
+	headers["Subject"] = subj
+
+	// Setup message
+	message := ""
+	for k,v := range headers {
+		message += fmt.Sprintf("%s: %s\r\n", k, v)
+	}
+	message += "\r\n" + body
+
+	// Connect to the SMTP Server
+	servername := receiving_host + ":" + strconv.FormatInt(int64(port), 10)
+
+	var conn net.Conn
+	var tlsconfig *tls.Config
+
+	if (port == 25) {
+
+		// port 25 never uses TLS without STARTTLS
+		nconn, err := net.Dial("tcp", servername)
+		if err != nil {
+			//fmt.Println(err)
+			return err
+		}
+		conn = nconn
+
+	} else {
+
+		// port 465 and 587 should only accept TLS connections, so should any non standard port
+
+		if (receiving_host_tls_config == nil) {
+
+			// OS TLS config
+			tlsconfig = &tls.Config {
+				InsecureSkipVerify: false,
+				ServerName: receiving_host,
+			}
+
+		} else {
+			// supplied tls config
+			tlsconfig = receiving_host_tls_config
+		}
+
+		nconn, err := tls.Dial("tcp", servername, tlsconfig)
+		if err != nil {
+			//fmt.Println(err)
+			return err
+		}
+		conn = nconn
+
+	}
+
+	// read server greeting
+	read_err, _, read_data := smtp_client_read_command_response(conn)
+
+	if (read_err != nil) {
+		return read_err
+	}
+
+	// send EHLO command and read response
+	conn.Write([]byte("EHLO " + sending_host + "\r\n"))
+
+	// after EHLO the server may respond with ESMTP extensions
+	var esmtps []Esmtp
+
+	for (true) {
+
+		read_err, _, read_data = smtp_client_read_command_response(conn)
+
+		if (read_err != nil) {
+			return read_err
+		}
+
+		if (bytes.Index(read_data, []byte("250-")) > -1) {
+			// the server responded with a ESTMP extension
+			// add it to esmtps and read the next command
+
+			// get extension name
+			var e = string(bytes.Split(read_data, []byte("250-"))[1])
+			// get extension parts
+			var p = strings.Split(e, " ")
+
+			var supported_extension Esmtp
+			supported_extension.Name = p[0]
+			supported_extension.Parts = p[1:len(p)]
+
+			esmtps = append(esmtps, supported_extension)
+
+		} else {
+			// this command completes the EHLO response
+			// per SMTP it must be 250
+			break
+		}
+
+	}
+
+	if (len(esmtps) > 0) {
+
+		//fmt.Println("SMTP Extensions Found:", esmtps)
+
+		if (tlsconfig == nil) {
+
+			// use STARTTLS if supported and connection is not already using TLS
+
+			var starttls = false
+			for i := range esmtps {
+				if (esmtps[i].Name == "STARTTLS") {
+					starttls = true
+					break
+				}
+			}
+
+			if (starttls == true) {
+
+				//fmt.Println("STARTTLS supported and TLS not currently in use on conn")
+				//fmt.Println("Upgrading to TLS")
+
+				// send STARTTLS command and read response
+				conn.Write([]byte("STARTTLS\r\n"))
+
+				read_err, _, read_data = smtp_client_read_command_response(conn)
+
+				if (read_err != nil) {
+					return read_err
+				}
+
+				// 250 returned per SMTP
+
+				if (receiving_host_tls_config == nil) {
+
+					// OS TLS config
+					tlsconfig = &tls.Config {
+						InsecureSkipVerify: true,
+						ServerName: receiving_host,
+					}
+
+				} else {
+					// supplied tls config
+					tlsconfig = receiving_host_tls_config
+				}
+
+				var tlsConn *tls.Conn
+				tlsConn = tls.Client(conn, tlsconfig)
+				// run a handshake
+				tlsConn.Handshake()
+				// convert tlsConn to a net.Conn type
+				conn = net.Conn(tlsConn)
+
+			}
+
+		}
+
+	}
+
+	// send username and password if not nil via a supported ESMTP method provided by the server
+	if (username != "" || password != "") {
+
+		var auths_allowed Esmtp
+		for i := range esmtps {
+			if (esmtps[i].Name == "AUTH") {
+				auths_allowed = esmtps[i]
+				break
+			}
+		}
+
+		//fmt.Println("username or password provided, AUTH types allowed by server", auths_allowed)
+
+		for i := range auths_allowed.Parts {
+			if (auths_allowed.Parts[i] == "PLAIN") {
+
+				// use AUTH PLAIN
+				// send username + null character + password base64 encoded
+				var login_string = make([]byte, len(username) + 1 + len(password))
+				for c := range username {
+					login_string[c] = username[c]
+				}
+				login_string[len(username)] = 0
+				for c := range password {
+					login_string[len(username) + 1 + c] = password[c]
+				}
+
+				b64_string := base64.StdEncoding.EncodeToString(login_string)
+				conn.Write([]byte("AUTH PLAIN " + b64_string + "\r\n"))
+
+				// 235 response expected
+				read_err, _, read_data = smtp_client_read_command_response(conn)
+
+				if (read_err != nil) {
+					return read_err
+				}
+
+				//fmt.Println("AUTH PLAIN response (235 means authorized)")
+				//fmt.Println(string(read_data))
+
+				break
+
+			}
+		}
+
+	}
+
+	// send MAIL FROM command and read response
+	conn.Write([]byte("MAIL FROM:<" + from.Address + ">\r\n"))
+
+	read_err, _, read_data = smtp_client_read_command_response(conn)
+
+	if (read_err != nil) {
+		return read_err
+	}
+
+	for i := range to {
+
+		// send RCPT TO command and read response
+		conn.Write([]byte("RCPT TO:<" + to[i].Address + ">\r\n"))
+
+		read_err, _, read_data = smtp_client_read_command_response(conn)
+
+		if (read_err != nil) {
+			return read_err
+		}
+
+	}
+
+	for i := range cc {
+
+		// send RCPT TO command and read response
+		conn.Write([]byte("RCPT TO:<" + cc[i].Address + ">\r\n"))
+
+		read_err, _, read_data = smtp_client_read_command_response(conn)
+
+		if (read_err != nil) {
+			return read_err
+		}
+
+	}
+
+	for i := range bcc {
+
+		// send RCPT TO command and read response
+		conn.Write([]byte("RCPT TO:<" + bcc[i].Address + ">\r\n"))
+
+		read_err, _, read_data = smtp_client_read_command_response(conn)
+
+		if (read_err != nil) {
+			return read_err
+		}
+
+	}
+
+	// send DATA command and read response
+	conn.Write([]byte("DATA\r\n"))
+
+	read_err, _, read_data = smtp_client_read_command_response(conn)
+
+	if (read_err != nil) {
+		return read_err
+	}
+
+	// send DATA and read response
+	conn.Write([]byte(message + "\r\n.\r\n"))
+
+	read_err, _, read_data = smtp_client_read_command_response(conn)
+
+	if (read_err != nil) {
+		return read_err
+	}
+
+	conn.Write([]byte("QUIT\r\n"))
+	conn.Close()
+
+	return nil
+
+}
+
+func smtp_client_read_command_response(conn net.Conn) (error, uint64, []byte) {
+
+	var data []byte
+	var rlen uint64 = 0
+	seq := 0
+	for true {
+
+		var read_buf = make([]byte, 1)
+
+		// read 1 bytes
+		n, read_err := conn.Read(read_buf)
+
+		if (read_err != nil) {
+			return read_err, rlen, data
+		}
+
+		for c := range read_buf {
+			if (c > n) {
+				break
+			} else if (seq == 1) {
+				if (read_buf[c] == '\n') {
+					// sequence completed
+					seq += 1
+					break
+				}
+			} else if (seq == 0) {
+				if (read_buf[c] == '\r') {
+					seq += 1
+				} else {
+					data = append(data, read_buf[c])
+					rlen += 1
+				}
+			}
+		}
+
+		if (seq == 2) {
+			// command in data
+			break
+		}
+
+	}
+
+	return nil, rlen, data
 
 }
