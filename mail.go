@@ -1780,10 +1780,9 @@ func SendMail(outbound_mail OutboundMail) error {
 
 	// Setup message
 	message := make([]byte, 0)
-	//for k,v := range headers {
-		//message += fmt.Sprintf("%s: %s\r\n", k, v)
-		//message = append(message, []byte(""))
-	//}
+	for k,v := range headers {
+		message = append_bytes_to_a(message, []byte(k + ": " + v + "\r\n"))
+	}
 
 	message = append_bytes_to_a(message, []byte("\r\n"))
 
