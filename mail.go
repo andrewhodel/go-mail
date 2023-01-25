@@ -24,7 +24,6 @@ import (
 	"hash"
 	"fmt"
 	"net"
-	"net/smtp"
 	"net/mail"
 	"bytes"
 	"strings"
@@ -56,6 +55,24 @@ type Config struct {
 	SslCa				string	`json:"sslCa"`
 	LoadCertificatesFromFiles	bool	`json:"loadCertificatesFromFiles"`
 	Fqdn				string	`json:"fqdn"`
+}
+
+type OutboundMail struct {
+	SendingHost			string
+	Username			string
+	Password			string
+	ReceivingHostTlsConfig		*tls.Config
+	ReceivingHost			string
+	Port				int
+	From				mail.Address
+	To				[]mail.Address
+	Cc				[]mail.Address
+	Bcc				[]mail.Address
+	Subj				string
+	Body				[]byte
+	DkimPrivateKey			string
+	DkimDomain			string
+	DkimSigningAlgo			string
 }
 
 type Esmtp struct {
@@ -1720,13 +1737,9 @@ func pop3TimestampBanner(fqdn string) (string) {
 
 }
 
-func SendMail(sending_host string, username string, password string, receiving_host_tls_config *tls.Config, receiving_host string, port int, auth smtp.Auth, from mail.Address, to []mail.Address, cc []mail.Address, bcc []mail.Address, subj string, body string, dkim_private_key string, dkim_domain string, dkim_signing_algo string) error {
+func SendMail(outbound_mail OutboundMail) error {
 
-	if (dkim_private_key != "" && dkim_domain != "" && dkim_signing_algo != "") {
-
-		// dkim_private_key             string                  DKIM private key (private key to use to sign the DKIM headers in the email)
-		// dkim_domain                  string                  DKIM domain (address of DKIM public key TXT record)
-		// dkim_signing_algo            string                  DKIM signing algorithm (rsa-sha256 supported)
+	if (outbound_mail.DkimPrivateKey != "" && outbound_mail.DkimDomain != "" && outbound_mail.DkimSigningAlgo != "") {
 
 		// create DKIM header
 
@@ -1734,51 +1747,56 @@ func SendMail(sending_host string, username string, password string, receiving_h
 
 	// Setup headers
 	headers := make(map[string]string)
-	headers["From"] = from.String()
+	headers["From"] = outbound_mail.From.String()
 
-	if (len(to) > 0) {
+	if (len(outbound_mail.To) > 0) {
 		var th = ""
-		for i := range to {
-			th += to[i].String() + ","
+		for i := range outbound_mail.To {
+			th += outbound_mail.To[i].String() + ","
 		}
 		th = strings.TrimRight(th, ",")
 		headers["To"] = th
 	}
 
-	if (len(cc) > 0) {
+	if (len(outbound_mail.Cc) > 0) {
 		var cch = ""
-		for i := range cc {
-			cch += cc[i].String() + ","
+		for i := range outbound_mail.Cc {
+			cch += outbound_mail.Cc[i].String() + ","
 		}
 		cch = strings.TrimRight(cch, ",")
 		headers["Cc"] = cch
 	}
 
-	if (len(bcc) > 0) {
+	if (len(outbound_mail.Bcc) > 0) {
 		var bcch = ""
-		for i := range bcc {
-			bcch += bcc[i].String() + ","
+		for i := range outbound_mail.Bcc {
+			bcch += outbound_mail.Bcc[i].String() + ","
 		}
 		bcch = strings.TrimRight(bcch, ",")
 		headers["Bcc"] = bcch
 	}
 
-	headers["Subject"] = subj
+	headers["Subject"] = outbound_mail.Subj
 
 	// Setup message
-	message := ""
-	for k,v := range headers {
-		message += fmt.Sprintf("%s: %s\r\n", k, v)
-	}
-	message += "\r\n" + body
+	message := make([]byte, 0)
+	//for k,v := range headers {
+		//message += fmt.Sprintf("%s: %s\r\n", k, v)
+		//message = append(message, []byte(""))
+	//}
+
+	message = append_bytes_to_a(message, []byte("\r\n"))
+
+	//message = append(message, []byte("\r\n"))
+	//message = append(message, outbound_mail.Body)
 
 	// Connect to the SMTP Server
-	servername := receiving_host + ":" + strconv.FormatInt(int64(port), 10)
+	servername := outbound_mail.ReceivingHost + ":" + strconv.FormatInt(int64(outbound_mail.Port), 10)
 
 	var conn net.Conn
 	var tlsconfig *tls.Config
 
-	if (port == 25) {
+	if (outbound_mail.Port == 25) {
 
 		// port 25 never uses TLS without STARTTLS
 		nconn, err := net.Dial("tcp", servername)
@@ -1792,17 +1810,17 @@ func SendMail(sending_host string, username string, password string, receiving_h
 
 		// port 465 and 587 should only accept TLS connections, so should any non standard port
 
-		if (receiving_host_tls_config == nil) {
+		if (outbound_mail.ReceivingHostTlsConfig == nil) {
 
 			// OS TLS config
 			tlsconfig = &tls.Config {
 				InsecureSkipVerify: false,
-				ServerName: receiving_host,
+				ServerName: outbound_mail.ReceivingHost,
 			}
 
 		} else {
 			// supplied tls config
-			tlsconfig = receiving_host_tls_config
+			tlsconfig = outbound_mail.ReceivingHostTlsConfig
 		}
 
 		nconn, err := tls.Dial("tcp", servername, tlsconfig)
@@ -1822,7 +1840,7 @@ func SendMail(sending_host string, username string, password string, receiving_h
 	}
 
 	// send EHLO command and read response
-	conn.Write([]byte("EHLO " + sending_host + "\r\n"))
+	conn.Write([]byte("EHLO " + outbound_mail.SendingHost + "\r\n"))
 
 	// after EHLO the server may respond with ESMTP extensions
 	var esmtps []Esmtp
@@ -1890,17 +1908,17 @@ func SendMail(sending_host string, username string, password string, receiving_h
 
 				// 250 returned per SMTP
 
-				if (receiving_host_tls_config == nil) {
+				if (outbound_mail.ReceivingHostTlsConfig == nil) {
 
 					// OS TLS config
 					tlsconfig = &tls.Config {
 						InsecureSkipVerify: true,
-						ServerName: receiving_host,
+						ServerName: outbound_mail.ReceivingHost,
 					}
 
 				} else {
 					// supplied tls config
-					tlsconfig = receiving_host_tls_config
+					tlsconfig = outbound_mail.ReceivingHostTlsConfig
 				}
 
 				var tlsConn *tls.Conn
@@ -1917,7 +1935,7 @@ func SendMail(sending_host string, username string, password string, receiving_h
 	}
 
 	// send username and password if not nil via a supported ESMTP method provided by the server
-	if (username != "" || password != "") {
+	if (outbound_mail.Username != "" || outbound_mail.Password != "") {
 
 		var auths_allowed Esmtp
 		for i := range esmtps {
@@ -1934,13 +1952,13 @@ func SendMail(sending_host string, username string, password string, receiving_h
 
 				// use AUTH PLAIN
 				// send username + null character + password base64 encoded
-				var login_string = make([]byte, len(username) + 1 + len(password))
-				for c := range username {
-					login_string[c] = username[c]
+				var login_string = make([]byte, len(outbound_mail.Username) + 1 + len(outbound_mail.Password))
+				for c := range outbound_mail.Username {
+					login_string[c] = outbound_mail.Username[c]
 				}
-				login_string[len(username)] = 0
-				for c := range password {
-					login_string[len(username) + 1 + c] = password[c]
+				login_string[len(outbound_mail.Username)] = 0
+				for c := range outbound_mail.Password {
+					login_string[len(outbound_mail.Username) + 1 + c] = outbound_mail.Password[c]
 				}
 
 				b64_string := base64.StdEncoding.EncodeToString(login_string)
@@ -1964,7 +1982,7 @@ func SendMail(sending_host string, username string, password string, receiving_h
 	}
 
 	// send MAIL FROM command and read response
-	conn.Write([]byte("MAIL FROM:<" + from.Address + ">\r\n"))
+	conn.Write([]byte("MAIL FROM:<" + outbound_mail.From.Address + ">\r\n"))
 
 	read_err, _, read_data = smtp_client_read_command_response(conn)
 
@@ -1972,10 +1990,10 @@ func SendMail(sending_host string, username string, password string, receiving_h
 		return read_err
 	}
 
-	for i := range to {
+	for i := range outbound_mail.To {
 
 		// send RCPT TO command and read response
-		conn.Write([]byte("RCPT TO:<" + to[i].Address + ">\r\n"))
+		conn.Write([]byte("RCPT TO:<" + outbound_mail.To[i].Address + ">\r\n"))
 
 		read_err, _, read_data = smtp_client_read_command_response(conn)
 
@@ -1985,10 +2003,10 @@ func SendMail(sending_host string, username string, password string, receiving_h
 
 	}
 
-	for i := range cc {
+	for i := range outbound_mail.Cc {
 
 		// send RCPT TO command and read response
-		conn.Write([]byte("RCPT TO:<" + cc[i].Address + ">\r\n"))
+		conn.Write([]byte("RCPT TO:<" + outbound_mail.Cc[i].Address + ">\r\n"))
 
 		read_err, _, read_data = smtp_client_read_command_response(conn)
 
@@ -1998,10 +2016,10 @@ func SendMail(sending_host string, username string, password string, receiving_h
 
 	}
 
-	for i := range bcc {
+	for i := range outbound_mail.Bcc {
 
 		// send RCPT TO command and read response
-		conn.Write([]byte("RCPT TO:<" + bcc[i].Address + ">\r\n"))
+		conn.Write([]byte("RCPT TO:<" + outbound_mail.Bcc[i].Address + ">\r\n"))
 
 		read_err, _, read_data = smtp_client_read_command_response(conn)
 
@@ -2021,7 +2039,8 @@ func SendMail(sending_host string, username string, password string, receiving_h
 	}
 
 	// send DATA and read response
-	conn.Write([]byte(message + "\r\n.\r\n"))
+	conn.Write(message)
+	conn.Write([]byte("\r\n.\r\n"))
 
 	read_err, _, read_data = smtp_client_read_command_response(conn)
 
@@ -2079,5 +2098,15 @@ func smtp_client_read_command_response(conn net.Conn) (error, uint64, []byte) {
 	}
 
 	return nil, rlen, data
+
+}
+
+func append_bytes_to_a(a []byte, b []byte) ([]byte) {
+
+	for i := range b {
+		a = append(a, b[i])
+	}
+
+	return a
 
 }
