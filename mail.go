@@ -1776,18 +1776,8 @@ func SendMail(outbound_mail OutboundMail) error {
 		headers["Bcc"] = bcch
 	}
 
+
 	headers["Subject"] = outbound_mail.Subj
-
-	// Setup message
-	message := make([]byte, 0)
-	for k,v := range headers {
-		message = append_bytes_to_a(message, []byte(k + ": " + v + "\r\n"))
-	}
-
-	message = append_bytes_to_a(message, []byte("\r\n"))
-
-	//message = append(message, []byte("\r\n"))
-	//message = append(message, outbound_mail.Body)
 
 	// Connect to the SMTP Server
 	servername := outbound_mail.ReceivingHost + ":" + strconv.FormatInt(int64(outbound_mail.Port), 10)
@@ -2038,7 +2028,12 @@ func SendMail(outbound_mail OutboundMail) error {
 	}
 
 	// send DATA and read response
-	conn.Write(message)
+	for k,v := range headers {
+		conn.Write([]byte(k + ": " + v + "\r\n"))
+	}
+
+	conn.Write([]byte("\r\n"))
+	conn.Write(outbound_mail.Body)
 	conn.Write([]byte("\r\n.\r\n"))
 
 	read_err, _, read_data = smtp_client_read_command_response(conn)
@@ -2097,15 +2092,5 @@ func smtp_client_read_command_response(conn net.Conn) (error, uint64, []byte) {
 	}
 
 	return nil, rlen, data
-
-}
-
-func append_bytes_to_a(a []byte, b []byte) ([]byte) {
-
-	for i := range b {
-		a = append(a, b[i])
-	}
-
-	return a
 
 }
