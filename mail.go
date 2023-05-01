@@ -2058,14 +2058,22 @@ func smtp_client_read_command_response(conn net.Conn) (error, uint64, []byte) {
 
 		var read_buf = make([]byte, 1)
 
-		// read 1 bytes
+		// read 1 byte
 		n, read_err := conn.Read(read_buf)
 
 		if (read_err != nil) {
 			return read_err, rlen, data
 		}
 
+		rlen += 1
+
 		for c := range read_buf {
+
+			if (c > 512) {
+				// max command size
+				return errors.New("max SMTP command size"), rlen, data
+			}
+
 			if (c > n) {
 				break
 			} else if (seq == 1) {
@@ -2079,7 +2087,6 @@ func smtp_client_read_command_response(conn net.Conn) (error, uint64, []byte) {
 					seq += 1
 				} else {
 					data = append(data, read_buf[c])
-					rlen += 1
 				}
 			}
 		}
@@ -2087,6 +2094,11 @@ func smtp_client_read_command_response(conn net.Conn) (error, uint64, []byte) {
 		if (seq == 2) {
 			// command in data
 			break
+		}
+
+		if (rlen > 512) {
+			// max command size
+			return errors.New("max SMTP command size"), rlen, data
 		}
 
 	}
