@@ -76,6 +76,7 @@ type OutboundMail struct {
 	DkimPrivateKey			[]byte
 	DkimDomain			string
 	DkimSigningAlgo			string
+	DkimExpireSeconds		int
 }
 
 type Esmtp struct {
@@ -1742,7 +1743,17 @@ func pop3TimestampBanner(fqdn string) (string) {
 
 func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
+	if (outbound_mail.From.String() == "") {
+		return errors.New("requires a from address"), nil
+	}
+
+	// Setup headers
+	headers := make(map[string]string)
+
 	if (len(outbound_mail.DkimPrivateKey) > 0 && outbound_mail.DkimDomain != "") {
+
+		var dkim_header = bytes.Buffer{}
+		dkim_header.Write([]byte("DKIM-Signature: v=1;"))
 
 		if (outbound_mail.DkimSigningAlgo == "") {
 			// use default
@@ -1753,9 +1764,23 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 			return errors.New("invalid DkimSigningAlgo"), nil
 		}
 
-		if (outbound_mail.From.String() == "") {
-			return errors.New("DKIM requires a from address"), nil
+		if (outbound_mail.DkimExpireSeconds == 0) {
+			// set to 60 minutes by default
+			outbound_mail.DkimExpireSeconds = 3600
 		}
+
+		var l = strings.Split(outbound_mail.DkimDomain, "._domainkey.")
+		if (len(l) != 2) {
+			return errors.New("invalid DkimDomain, must be selector._domainkey.domain.tld"), nil
+		}
+		var selector = l[0]
+		var domain = l[1]
+
+		// write to dkim_header
+		// t = timestamp
+		// x = expire time
+		now := int(time.Now().Unix())
+		dkim_header.Write([]byte(" a=rsa-sha256; q=dns/txt; c=simple/relaxed;\r\n s=" + selector + "; d=" + domain + "; t=" + strconv.Itoa(now) + "; x=" + strconv.Itoa(now + outbound_mail.DkimExpireSeconds) + "; h=from;"))
 
 		// create DKIM header
 		var privateKey *rsa.PrivateKey
@@ -1798,6 +1823,12 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
 		canonicalized_body = append(canonicalized_body, '\r')
 		canonicalized_body = append(canonicalized_body, '\n')
+		// DKIM requires the body be canonicalized with .\r\n as sent in the DATA command
+		canonicalized_body = append(canonicalized_body, '.')
+		canonicalized_body = append(canonicalized_body, '\r')
+		canonicalized_body = append(canonicalized_body, '\n')
+
+		//fmt.Println("canonicalized_body", string(canonicalized_body))
 
 		// get the checksum from the canonicalized body
 		var canonicalized_body_sha256_sum = sha256.Sum256(canonicalized_body)
@@ -1810,23 +1841,54 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 		// as base64
 		canonicalized_body_hash_base64 = base64.StdEncoding.EncodeToString(formatted_canonicalized_body_sha256_sum)
 
-		fmt.Println("canonicalized_body_hash_base64", canonicalized_body_hash_base64)
+		//fmt.Println("canonicalized_body_hash_base64", canonicalized_body_hash_base64)
+
+		// write to dkim_header
+		dkim_header.Write([]byte("\r\n bh=" + canonicalized_body_hash_base64 + ";\r\n b="))
 
 		// create the canonicalized header string using the from header
 		var canonicalized_header_string = ""
 
 		// relaxed header canonicalization
-		canonicalized_header_string = "from:" + outbound_mail.From.String() + "\r\n"
+		canonicalized_header_string = "From: " + outbound_mail.From.String() + "\r\n"
 
-		fmt.Println("canonicalized_header_string", sha256.Sum256([]byte(canonicalized_header_string)), []byte(canonicalized_header_string), canonicalized_header_string)
+		// add dkim_header with b= and an empty value to canonicalized_header_string
+		canonicalized_header_string += dkim_header.String()
 
-		// create the signature of headers and body, send in b=
-		_ = privateKey
+		//fmt.Println("canonicalized_header_string", []byte(canonicalized_header_string))
+		//fmt.Println("canonicalized_header_string", canonicalized_header_string)
+
+		// create the signature of headers to send in b=
+		var h1 hash.Hash
+		var h2 crypto.Hash
+		h1 = sha256.New()
+		h2 = crypto.SHA256
+
+		// sign
+		h1.Write([]byte(canonicalized_header_string))
+		sig, err := rsa.SignPKCS1v15(rand.Reader, privateKey, h2, h1.Sum(nil))
+		if err != nil {
+			return err, nil
+		}
+		var b_value = base64.StdEncoding.EncodeToString(sig)
+
+		// every 70 characters, add "\r\n "
+		var lined []byte
+		for ch := range(b_value) {
+			lined = append(lined, b_value[ch])
+			if (ch % 70 == 0 && ch != 0) {
+				lined = append(lined, '\r')
+				lined = append(lined, '\n')
+				lined = append(lined, ' ')
+			}
+		}
+
+		dkim_header.Write(lined)
+
+		headers["DKIM-Signature"] = string(dkim_header.Bytes()[16:])
 
 	}
 
-	// Setup headers
-	headers := make(map[string]string)
 	headers["From"] = outbound_mail.From.String()
 
 	if (len(outbound_mail.To) > 0) {
@@ -2142,6 +2204,12 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	}
 
 	buf := bytes.Buffer{}
+
+	// write from header first
+	// required in this order for DKIM validation, often
+	buf.Write([]byte("From: " + headers["From"] + "\r\n"))
+	conn.Write([]byte("From: " + headers["From"] + "\r\n"))
+	delete(headers, "From")
 
 	// send DATA and read response
 	for k,v := range headers {
