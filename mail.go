@@ -1741,7 +1741,12 @@ func pop3TimestampBanner(fqdn string) (string) {
 
 func SendMail(outbound_mail OutboundMail) error {
 
-	if (outbound_mail.DkimPrivateKey != "" && outbound_mail.DkimDomain != "" && outbound_mail.DkimSigningAlgo != "") {
+	if (outbound_mail.DkimPrivateKey != "" && outbound_mail.DkimDomain != "") {
+
+		if (outbound_mail.DkimSigningAlgo == "") {
+			// use default
+			outbound_mail.DkimSigningAlgo = "rsa-sha256"
+		}
 
 		// create DKIM header
 

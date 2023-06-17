@@ -33,7 +33,6 @@ ParseTags()
 Read `examples/send_mail.go`
 
 ```go
-/*
 type OutboundMail struct {
 	SendingHost			string			fqdn or hostname of the client (sending) host
 	Username			string			ESMTP AUTH username
@@ -51,7 +50,6 @@ type OutboundMail struct {
 	DkimDomain			string			DKIM domain (address of DKIM public key TXT record)
 	DkimSigningAlgo			string			DKIM signing algorithm (rsa-sha256 supported)
 }
-*/
 ```
 
 # Server Configuration Struct
