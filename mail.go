@@ -23,6 +23,7 @@ import (
 	"crypto"
 	"hash"
 	"errors"
+	"context"
 	"fmt"
 	"net"
 	"net/mail"
@@ -1779,6 +1780,40 @@ func SendMail(outbound_mail OutboundMail) error {
 
 
 	headers["Subject"] = outbound_mail.Subj
+
+	if (outbound_mail.SendingHost == "") {
+		// set to localhost
+		outbound_mail.SendingHost = "localhost"
+	}
+	if (outbound_mail.Port == 0) {
+		// set to 25
+		outbound_mail.Port = 25
+	}
+	if (outbound_mail.ReceivingHost == "") {
+		// set from to address
+		if (len(outbound_mail.To) > 0) {
+			p := strings.Split(outbound_mail.To[0].Address, "@")
+			outbound_mail.ReceivingHost = p[1]
+
+			// get mx record to get address of SMTP server
+			var r net.Resolver
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second * 10)
+			defer cancel()
+			mx, mx_err := r.LookupMX(ctx, p[1])
+
+			if (mx_err == nil) {
+				if (len(mx) > 0) {
+					outbound_mail.ReceivingHost = mx[0].Host
+				} else {
+					return errors.New("No MX records found for " + outbound_mail.To[0].String())
+				}
+			} else {
+				return mx_err
+			}
+		} else {
+			return errors.New("No To address or ReceivingHost set.")
+		}
+	}
 
 	// Connect to the SMTP Server
 	servername := outbound_mail.ReceivingHost + ":" + strconv.FormatInt(int64(outbound_mail.Port), 10)
