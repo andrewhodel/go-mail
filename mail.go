@@ -589,7 +589,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 								var dkim_expired = false
 								if (dkim_hp["x"] != "") {
 									// make sure header is not expired
-									i, err := strconv.ParseInt("1405544146", 10, 64)
+									i, err := strconv.ParseInt(dkim_hp["x"], 10, 64)
 									if err != nil {
 										// invalid data in x tag
 										dkim_expired = true
@@ -600,6 +600,8 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 										}
 									}
 								}
+
+								//fmt.Println("dkim_expired", dkim_expired)
 
 								// the domain in the from header
 								var valid_domain_1 = ""
