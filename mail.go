@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"crypto"
 	"hash"
+	"errors"
 	"fmt"
 	"net"
 	"net/mail"
@@ -2097,7 +2098,7 @@ func smtp_client_read_command_response(conn net.Conn) (error, uint64, []byte) {
 			break
 		}
 
-		if (rlen > max_read_size) {
+		if (rlen > uint64(max_read_size)) {
 			// max command response size
 			return errors.New("max SMTP command response size"), rlen, data
 		}
