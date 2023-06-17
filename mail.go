@@ -2240,6 +2240,9 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
 	for (true) {
 
+		// shorten the read deadline as this is after the DATA has been sent
+		conn.SetReadDeadline(time.Now().Add(time.Second * 10))
+
 		read_err, _, read_data = smtp_client_read_command_response(conn)
 
 		if (read_err != nil) {
