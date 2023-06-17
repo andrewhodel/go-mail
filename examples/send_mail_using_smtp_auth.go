@@ -42,7 +42,9 @@ func main() {
 	to = append(to, mail.Address{"Andrew Hodel", "andrew@xyzbots.com"})
 	om.To = to
 
-	err := gomail.SendMail(om)
+	// the data as sent to the server is in em
+	err, em := gomail.SendMail(om)
+	_ = em
 
 	if (err != nil) {
 		fmt.Println("gomail.SendMail() error:", err)

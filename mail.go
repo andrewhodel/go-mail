@@ -1740,7 +1740,7 @@ func pop3TimestampBanner(fqdn string) (string) {
 
 }
 
-func SendMail(outbound_mail OutboundMail) error {
+func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
 	if (len(outbound_mail.DkimPrivateKey) > 0 && outbound_mail.DkimDomain != "") {
 
@@ -1750,11 +1750,11 @@ func SendMail(outbound_mail OutboundMail) error {
 		}
 
 		if (outbound_mail.DkimSigningAlgo != "rsa-sha256") {
-			return errors.New("invalid DkimSigningAlgo")
+			return errors.New("invalid DkimSigningAlgo"), nil
 		}
 
 		if (outbound_mail.From.String() == "") {
-			return errors.New("DKIM requires a from address")
+			return errors.New("DKIM requires a from address"), nil
 		}
 
 		// create DKIM header
@@ -1762,13 +1762,13 @@ func SendMail(outbound_mail OutboundMail) error {
 
 		d, _ := pem.Decode(outbound_mail.DkimPrivateKey)
 		if (d == nil) {
-			return errors.New("error parsing DKIM private key")
+			return errors.New("error parsing DKIM private key"), nil
 		}
 
 		// try to parse it as PKCS1 otherwise try PKCS8
 		if key, err := x509.ParsePKCS1PrivateKey(d.Bytes); err != nil {
 			if key, err := x509.ParsePKCS8PrivateKey(d.Bytes); err != nil {
-				return err
+				return err, nil
 			} else {
 				privateKey = key.(*rsa.PrivateKey)
 			}
@@ -1883,13 +1883,13 @@ func SendMail(outbound_mail OutboundMail) error {
 				if (len(mx) > 0) {
 					outbound_mail.ReceivingHost = mx[0].Host
 				} else {
-					return errors.New("No MX records found for " + outbound_mail.To[0].String())
+					return errors.New("No MX records found for " + outbound_mail.To[0].String()), nil
 				}
 			} else {
-				return mx_err
+				return mx_err, nil
 			}
 		} else {
-			return errors.New("No To address or ReceivingHost set.")
+			return errors.New("No To address or ReceivingHost set."), nil
 		}
 	}
 
@@ -1905,7 +1905,7 @@ func SendMail(outbound_mail OutboundMail) error {
 		nconn, err := net.Dial("tcp", servername)
 		if err != nil {
 			//fmt.Println(err)
-			return err
+			return err, nil
 		}
 		conn = nconn
 
@@ -1929,7 +1929,7 @@ func SendMail(outbound_mail OutboundMail) error {
 		nconn, err := tls.Dial("tcp", servername, tlsconfig)
 		if err != nil {
 			//fmt.Println(err)
-			return err
+			return err, nil
 		}
 		conn = nconn
 
@@ -1939,7 +1939,7 @@ func SendMail(outbound_mail OutboundMail) error {
 	read_err, _, read_data := smtp_client_read_command_response(conn)
 
 	if (read_err != nil) {
-		return read_err
+		return read_err, nil
 	}
 
 	// send EHLO command and read response
@@ -1953,7 +1953,7 @@ func SendMail(outbound_mail OutboundMail) error {
 		read_err, _, read_data = smtp_client_read_command_response(conn)
 
 		if (read_err != nil) {
-			return read_err
+			return read_err, nil
 		}
 
 		if (bytes.Index(read_data, []byte("250-")) > -1) {
@@ -2006,7 +2006,7 @@ func SendMail(outbound_mail OutboundMail) error {
 				read_err, _, read_data = smtp_client_read_command_response(conn)
 
 				if (read_err != nil) {
-					return read_err
+					return read_err, nil
 				}
 
 				// 250 returned per SMTP
@@ -2071,7 +2071,7 @@ func SendMail(outbound_mail OutboundMail) error {
 				read_err, _, read_data = smtp_client_read_command_response(conn)
 
 				if (read_err != nil) {
-					return read_err
+					return read_err, nil
 				}
 
 				//fmt.Println("AUTH PLAIN response (235 means authorized)")
@@ -2090,7 +2090,7 @@ func SendMail(outbound_mail OutboundMail) error {
 	read_err, _, read_data = smtp_client_read_command_response(conn)
 
 	if (read_err != nil) {
-		return read_err
+		return read_err, nil
 	}
 
 	for i := range outbound_mail.To {
@@ -2101,7 +2101,7 @@ func SendMail(outbound_mail OutboundMail) error {
 		read_err, _, read_data = smtp_client_read_command_response(conn)
 
 		if (read_err != nil) {
-			return read_err
+			return read_err, nil
 		}
 
 	}
@@ -2114,7 +2114,7 @@ func SendMail(outbound_mail OutboundMail) error {
 		read_err, _, read_data = smtp_client_read_command_response(conn)
 
 		if (read_err != nil) {
-			return read_err
+			return read_err, nil
 		}
 
 	}
@@ -2127,7 +2127,7 @@ func SendMail(outbound_mail OutboundMail) error {
 		read_err, _, read_data = smtp_client_read_command_response(conn)
 
 		if (read_err != nil) {
-			return read_err
+			return read_err, nil
 		}
 
 	}
@@ -2138,11 +2138,14 @@ func SendMail(outbound_mail OutboundMail) error {
 	read_err, _, read_data = smtp_client_read_command_response(conn)
 
 	if (read_err != nil) {
-		return read_err
+		return read_err, nil
 	}
+
+	buf := bytes.Buffer{}
 
 	// send DATA and read response
 	for k,v := range headers {
+		buf.Write([]byte(k + ": " + v + "\r\n"))
 		conn.Write([]byte(k + ": " + v + "\r\n"))
 	}
 
@@ -2150,16 +2153,20 @@ func SendMail(outbound_mail OutboundMail) error {
 	conn.Write(outbound_mail.Body)
 	conn.Write([]byte("\r\n.\r\n"))
 
+	buf.Write([]byte("\r\n"))
+	buf.Write(outbound_mail.Body)
+	buf.Write([]byte("\r\n.\r\n"))
+
 	read_err, _, read_data = smtp_client_read_command_response(conn)
 
 	if (read_err != nil) {
-		return read_err
+		return read_err, nil
 	}
 
 	conn.Write([]byte("QUIT\r\n"))
 	conn.Close()
 
-	return nil
+	return nil, buf.Bytes()
 
 }
 
