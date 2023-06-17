@@ -2249,7 +2249,10 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 			break
 		}
 
-		if (bytes.Index(read_data, []byte("5")) == 0) {
+		if (bytes.Index(read_data, []byte("250")) == 0) {
+			// finished
+			break
+		} else if (bytes.Index(read_data, []byte("5")) == 0) {
 			// error
 			error_string += string(read_data) + "\n"
 		}
