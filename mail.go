@@ -2024,7 +2024,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 			return read_err, nil
 		}
 
-		if (bytes.Index(read_data, []byte("250-")) > -1) {
+		if (bytes.Index(read_data, []byte("250-")) == 0) {
 			// the server responded with a ESTMP extension
 			// add it to esmtps and read the next command
 
@@ -2039,7 +2039,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
 			esmtps = append(esmtps, supported_extension)
 
-		} else {
+		} else if (bytes.Index(read_data, []byte("250")) == 0) {
 			// this command completes the EHLO response
 			// per SMTP it must be 250
 			break
@@ -2209,6 +2209,11 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 		return read_err, nil
 	}
 
+	if (bytes.Index(read_data, []byte("354")) != 0) {
+		// error
+		return errors.New("smtp server did not respond with 354 after DATA command, " + string(read_data)), nil
+	}
+
 	buf := bytes.Buffer{}
 
 	// write from header first
@@ -2231,16 +2236,32 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	buf.Write([]byte("\r\n"))
 	buf.Write(outbound_mail.Body)
 
-	read_err, _, read_data = smtp_client_read_command_response(conn)
+	var error_string = ""
 
-	if (read_err != nil) {
-		return read_err, nil
+	for (true) {
+
+		read_err, _, read_data = smtp_client_read_command_response(conn)
+
+		if (read_err != nil) {
+			break
+		}
+
+		if (bytes.Index(read_data, []byte("5")) == 0) {
+			// error
+			error_string += string(read_data) + "\n"
+		}
+
 	}
 
 	conn.Write([]byte("QUIT\r\n"))
 	conn.Close()
 
-	return nil, buf.Bytes()
+	if (error_string == "") {
+		return nil, buf.Bytes()
+	} else {
+		// return error
+		return errors.New(error_string), buf.Bytes()
+	}
 
 }
 
