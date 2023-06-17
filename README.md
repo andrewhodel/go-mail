@@ -46,7 +46,7 @@ type OutboundMail struct {
 	Bcc				[]mail.Address		list of addresses sent to and in the bcc header
 	Subj				string
 	Body				[]byte
-	DkimPrivateKey			string			DKIM private key (private key to use to sign the DKIM headers in the email)
+	DkimPrivateKey			[]byte			DKIM private key (private key to use to sign the DKIM headers in the email)
 	DkimDomain			string			DKIM domain (address of DKIM public key TXT record)
 	DkimSigningAlgo			string			DKIM signing algorithm (rsa-sha256 supported)
 }

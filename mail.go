@@ -17,6 +17,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"time"
+	"encoding/pem"
 	"crypto/sha256"
 	"crypto/rand"
 	"crypto/tls"
@@ -72,7 +73,7 @@ type OutboundMail struct {
 	Bcc				[]mail.Address
 	Subj				string
 	Body				[]byte
-	DkimPrivateKey			string
+	DkimPrivateKey			[]byte
 	DkimDomain			string
 	DkimSigningAlgo			string
 }
@@ -688,7 +689,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 										"simple" body canonicalization algorithm converts "*CRLF" at the end
 										of the body to a single "CRLF".
 
-											In better explanation, remove \r\n.\r\n, then remove all \r\n at the end then add \r\n (\r\n is CRLF)
+											remove all \r\n at the end then add \r\n (\r\n is CRLF)
 										*/
 
 										if (dkim_hp["l"] != "") {
@@ -1741,14 +1742,86 @@ func pop3TimestampBanner(fqdn string) (string) {
 
 func SendMail(outbound_mail OutboundMail) error {
 
-	if (outbound_mail.DkimPrivateKey != "" && outbound_mail.DkimDomain != "") {
+	if (len(outbound_mail.DkimPrivateKey) > 0 && outbound_mail.DkimDomain != "") {
 
 		if (outbound_mail.DkimSigningAlgo == "") {
 			// use default
 			outbound_mail.DkimSigningAlgo = "rsa-sha256"
 		}
 
+		if (outbound_mail.DkimSigningAlgo != "rsa-sha256") {
+			return errors.New("invalid DkimSigningAlgo")
+		}
+
+		if (outbound_mail.From.String() == "") {
+			return errors.New("DKIM requires a from address")
+		}
+
 		// create DKIM header
+		var privateKey *rsa.PrivateKey
+
+		d, _ := pem.Decode(outbound_mail.DkimPrivateKey)
+		if (d == nil) {
+			return errors.New("error parsing DKIM private key")
+		}
+
+		// try to parse it as PKCS1 otherwise try PKCS8
+		if key, err := x509.ParsePKCS1PrivateKey(d.Bytes); err != nil {
+			if key, err := x509.ParsePKCS8PrivateKey(d.Bytes); err != nil {
+				return err
+			} else {
+				privateKey = key.(*rsa.PrivateKey)
+			}
+		} else {
+			privateKey = key
+		}
+
+		var canonicalized_body []byte
+		var canonicalized_body_hash_base64 string
+
+		// simple body canonicalization
+
+		/*
+		3.4.3.  The "simple" Body Canonicalization Algorithm
+		The "simple" body canonicalization algorithm ignores all empty lines
+		at the end of the message body.  An empty line is a line of zero
+		length after removal of the line terminator.  If there is no body or
+		no trailing CRLF on the message body, a CRLF is added.  It makes no
+		other changes to the message body.  In more formal terms, the
+		"simple" body canonicalization algorithm converts "*CRLF" at the end
+		of the body to a single "CRLF".
+
+			remove all \r\n at the end then add \r\n (\r\n is CRLF)
+		*/
+
+		canonicalized_body = bytes.TrimRight(outbound_mail.Body, "\r\n")
+
+		canonicalized_body = append(canonicalized_body, '\r')
+		canonicalized_body = append(canonicalized_body, '\n')
+
+		// get the checksum from the canonicalized body
+		var canonicalized_body_sha256_sum = sha256.Sum256(canonicalized_body)
+		// convert [32]byte to []byte
+		var formatted_canonicalized_body_sha256_sum []byte
+		for b := range canonicalized_body_sha256_sum {
+			formatted_canonicalized_body_sha256_sum = append(formatted_canonicalized_body_sha256_sum, canonicalized_body_sha256_sum[b])
+		}
+
+		// as base64
+		canonicalized_body_hash_base64 = base64.StdEncoding.EncodeToString(formatted_canonicalized_body_sha256_sum)
+
+		fmt.Println("canonicalized_body_hash_base64", canonicalized_body_hash_base64)
+
+		// create the canonicalized header string using the from header
+		var canonicalized_header_string = ""
+
+		// relaxed header canonicalization
+		canonicalized_header_string = "from:" + outbound_mail.From.String() + "\r\n"
+
+		fmt.Println("canonicalized_header_string", sha256.Sum256([]byte(canonicalized_header_string)), []byte(canonicalized_header_string), canonicalized_header_string)
+
+		// create the signature of headers and body, send in b=
+		_ = privateKey
 
 	}
 

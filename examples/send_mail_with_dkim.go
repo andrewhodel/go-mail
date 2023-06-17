@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"fmt"
 	"net/mail"
 	"github.com/andrewhodel/go-mail"
@@ -28,8 +29,17 @@ func main() {
 	}
 	*/
 
+	pk, pk_err := os.ReadFile("../xyzbots-dkim/private.key")
+
+	if (pk_err != nil) {
+		fmt.Println(pk_err)
+		os.Exit(1)
+	}
+
 	var om gomail.OutboundMail
-	om.From = mail.Address{"", "newuser@unknown.unknown_tld"}
+	om.DkimPrivateKey = pk
+	om.DkimDomain = "fgkhdgsfgdds._domainkey.xyzbots.com"
+	om.From = mail.Address{"", "andrew@xyzbots.com"}
 	om.Subj = "New go-mail user"
 	om.Body = []byte("New go-mail user")
 
