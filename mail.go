@@ -625,11 +625,14 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 								} else if (dkim_hp["a"] != "rsa-sha256") {
 									//fmt.Println("unsupported DKIM signing algorithm", dkim_hp["a"])
 									headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(unsupported signing algorithm)"
-								} else if (dkim_hp["d"] != valid_domain_1 && dkim_hp["d"] != valid_domain_2) {
-									// the d= tag value (domain specified in the DKIM header) is not the same domain as the reply-to address
-									//fmt.Println("DKIM d= domain", dkim_hp["d"], "does not match the from address", headers["from"], "or the MAIL FROM address", mail_from)
-									headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(d= domain does not match the from header domain or the SMTP MAIL FROM domain)"
+
 								} else {
+
+									if (dkim_hp["d"] != valid_domain_1 && dkim_hp["d"] != valid_domain_2) {
+										// the d= tag value (domain specified in the DKIM header) is not the same domain as the reply-to address
+										//fmt.Println("DKIM d= domain", dkim_hp["d"], "does not match the from address", headers["from"], "or the MAIL FROM address", mail_from)
+										headers["dkim-validation-warnings"] = headers["dkim-validation-warnings"] + "(d= domain does not match the from header domain or the SMTP MAIL FROM domain)"
+									}
 
 									// finish parsing the DKIM headers
 									// replace whitespace in b= and bh=
