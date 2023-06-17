@@ -875,6 +875,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 												if (is_real == true) {
 													// add each header specified in the h= tag with the valid format
+													// lowercase key values and no spaces on either side of :
 													canonicalized_header_string = canonicalized_header_string + h_name + ":" + headers[h_name] + "\r\n"
 												}
 											}
@@ -899,7 +900,8 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 										}
 
-										//fmt.Println("canonicalized_header_string", sha256.Sum256([]byte(canonicalized_header_string)), []byte(canonicalized_header_string), canonicalized_header_string)
+										//fmt.Println("canonicalized_header_string", []byte(canonicalized_header_string))
+										//fmt.Println("canonicalized_header_string", canonicalized_header_string)
 
 										// verify the signature
 										var h1 hash.Hash
@@ -1782,7 +1784,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 		// t = timestamp
 		// x = expire time
 		now := int(time.Now().Unix())
-		dkim_header.Write([]byte(" a=rsa-sha256; q=dns/txt; c=simple/relaxed;\r\n s=" + selector + "; d=" + domain + "; t=" + strconv.Itoa(now) + "; x=" + strconv.Itoa(now + outbound_mail.DkimExpireSeconds) + "; h=from;"))
+		dkim_header.Write([]byte(" a=rsa-sha256; q=dns/txt; c=relaxed/simple;\r\n s=" + selector + "; d=" + domain + "; t=" + strconv.Itoa(now) + "; x=" + strconv.Itoa(now + outbound_mail.DkimExpireSeconds) + "; h=from;"))
 
 		// create DKIM header
 		var privateKey *rsa.PrivateKey
@@ -1825,10 +1827,6 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
 		canonicalized_body = append(canonicalized_body, '\r')
 		canonicalized_body = append(canonicalized_body, '\n')
-		// DKIM requires the body be canonicalized with .\r\n as sent in the DATA command
-		canonicalized_body = append(canonicalized_body, '.')
-		canonicalized_body = append(canonicalized_body, '\r')
-		canonicalized_body = append(canonicalized_body, '\n')
 
 		//fmt.Println("canonicalized_body", string(canonicalized_body))
 
@@ -1852,10 +1850,13 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 		var canonicalized_header_string = ""
 
 		// relaxed header canonicalization
-		canonicalized_header_string = "From: " + outbound_mail.From.String() + "\r\n"
+		// lowercause key names
+		// no spaces on either side of :
+		canonicalized_header_string = "from:" + outbound_mail.From.String() + "\r\n"
 
 		// add dkim_header with b= and an empty value to canonicalized_header_string
-		canonicalized_header_string += dkim_header.String()
+		// replacing each header key with the same with lower case values and 
+		canonicalized_header_string += strings.ReplaceAll(strings.ReplaceAll(dkim_header.String(), "\r\n", ""), "DKIM-Signature: ", "dkim-signature:")
 
 		//fmt.Println("canonicalized_header_string", []byte(canonicalized_header_string))
 		//fmt.Println("canonicalized_header_string", canonicalized_header_string)
@@ -2223,9 +2224,9 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	conn.Write(outbound_mail.Body)
 	conn.Write([]byte("\r\n.\r\n"))
 
+	// do not write \r\n.\r\n to the output, only to the server
 	buf.Write([]byte("\r\n"))
 	buf.Write(outbound_mail.Body)
-	buf.Write([]byte("\r\n.\r\n"))
 
 	read_err, _, read_data = smtp_client_read_command_response(conn)
 
