@@ -419,6 +419,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 	sent_bytes := 0
 
 	smtp_data := make([]byte, 0)
+	last_parse_data_block_position := 0
 
 	for {
 
@@ -447,7 +448,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 		}
 
 		//fmt.Printf("smtp read length: %d\n", n)
-		//fmt.Println(string(buf))
+		//fmt.Print(string(buf))
 
 		// set buf to read length
 		buf = buf[:n]
@@ -501,16 +502,39 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 		if (parse_data == true) {
 			// connection has already been authenticated
-			// and parsed to the body and attachment blocks that use boundaries
+			// this is data sent after the client sends DATA and the server responds with 354
+
+			// to make fast modifications
+			// instead of iterating through 500MB of data each time 1400 bytes is added
+			var lp_start = last_parse_data_block_position - 10
+			if (lp_start < 0) {
+				lp_start = 0
+			}
+			smtp_data_edit_block := smtp_data[lp_start:len(smtp_data)]
 
 			// RFC-5321 section 4.5.2. Transparency
 			// Before sending a line of mail text, the SMTP client checks the first character of the line. If it is a period, one additional period is inserted at the beginning of the line.
+			smtp_data_edit_block = bytes.ReplaceAll(smtp_data_edit_block, []byte("\r\n.."), []byte("\r\n."))
+
+			smtp_data = smtp_data[0:lp_start]
+			for db := range(smtp_data_edit_block) {
+				smtp_data = append(smtp_data, smtp_data_edit_block[db])
+			}
 
 			// gather data until <CR><LF>.<CR><LF>
 			// indicating the end of this email (body, attachments and anything else received already)
-			data_block_end := bytes.Index(smtp_data, []byte("\r\n.\r\n"))
+			data_block_end := bytes.Index(smtp_data_edit_block, []byte("\r\n.\r\n"))
+			if (data_block_end > -1) {
+				// if the data_block_end was found, set the offset position
+				data_block_end += lp_start
+			}
+			//fmt.Println("data_block_end", data_block_end)
+
+			// keep track of the previous/last position in smtp_data
+			last_parse_data_block_position = len(smtp_data)-1
 
 			if (data_block_end > -1) {
+				// this is the end of all the DATA
 
 				//fmt.Printf("smtp parse_data: (%d)\n######\n%s\n######\n", len(smtp_data), smtp_data[0:data_block_end])
 				//fmt.Printf("<CR><LF>.<CR><LF> found at: %d of %d\n", data_block_end, len(smtp_data))
@@ -649,7 +673,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 									dkim_hp["bh"] = strings.ReplaceAll(dkim_hp["bh"], string(13), "")
 
 									// bh= is the body hash, if the l= field exists it specifies the length of the body that was hashed
-									//fmt.Println("body hash base64 bh=", dkim_hp["bh"])
+									//fmt.Println("DKIM header bh=", dkim_hp["bh"])
 
 									// make sure the bh tag from the DKIM headers is the same as the actual body hash (only the length specified if l= exists)
 
@@ -821,7 +845,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 										// body hash in the headers is the same as the calculated body hash
 										// valid
 
-										//fmt.Println("DKIM bh= tag matches hash of body content with length optionally specified by l= tag")
+										fmt.Println("DKIM bh= tag matches hash of body content with length optionally specified by l= tag")
 
 										// the DKIM public key of the sending domain is in dkim_public_key
 
