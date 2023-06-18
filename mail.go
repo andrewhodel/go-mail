@@ -1402,14 +1402,39 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 
 }
 
+func CertFromPemBytes(bytes []byte, password string) (tls.Certificate, error) {
+	var cert tls.Certificate
+	var block *pem.Block
+	for {
+		block, bytes = pem.Decode(bytes)
+		if block == nil {
+			break
+		}
+
+		if block.Type == "CERTIFICATE" {
+			cert.Certificate = append(cert.Certificate, block.Bytes)
+		}
+	}
+	if len(cert.Certificate) == 0 {
+		return tls.Certificate{}, errors.New("no certificate")
+	}
+	if c, e := x509.ParseCertificate(cert.Certificate[0]); e == nil {
+		cert.Leaf = c
+	}
+	return cert, nil
+}
+
 func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	var cert tls.Certificate
 	var err error
+	var rootca []byte
 	if (config.LoadCertificatesFromFiles == true) {
 		cert, err = tls.LoadX509KeyPair(config.SslCert, config.SslKey)
+		rootca, _ = os.ReadFile(config.SslCa)
 	} else {
 		cert, err = tls.X509KeyPair([]byte(config.SslCert), []byte(config.SslKey))
+		rootca = []byte(config.SslCa)
 	}
 
 	if err != nil {
@@ -1417,7 +1442,16 @@ func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 		os.Exit(1)
 	}
 
-	tls_config := tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.VerifyClientCertIfGiven, ServerName: config.Fqdn}
+	rootcert, rootcert_err := CertFromPemBytes(rootca, "")
+	if (rootcert_err == nil) {
+		// add the CA to the certificate chain (as NodeJS does by default)
+		for l := range(rootcert.Certificate) {
+			cert.Certificate = append(cert.Certificate, rootcert.Certificate[l])
+		}
+		cert.Leaf = rootcert.Leaf
+	}
+
+	tls_config := tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.VerifyClientCertIfGiven, MinVersion: tls.VersionTLS12, ServerName: config.Fqdn}
 	tls_config.Rand = rand.Reader
 
 	for p := range config.SmtpNonTLSPorts {
@@ -1435,21 +1469,34 @@ func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func, p
 
 	var cert tls.Certificate
 	var err error
+	var rootca []byte
 	if (config.LoadCertificatesFromFiles == true) {
 		cert, err = tls.LoadX509KeyPair(config.SslCert, config.SslKey)
+		rootca, _ = os.ReadFile(config.SslCa)
 	} else {
 		cert, err = tls.X509KeyPair([]byte(config.SslCert), []byte(config.SslKey))
+		rootca = []byte(config.SslCa)
 	}
 
 	if err != nil {
-		fmt.Printf("POP3 server did not load TLS certificates: %s\n", err)
+		fmt.Printf("SMTP server did not load TLS certificates: %s\n", err)
 		os.Exit(1)
 	}
 
-	srv_config := tls.Config{Certificates: []tls.Certificate{cert}}
-	srv_config.Rand = rand.Reader
+	rootcert, rootcert_err := CertFromPemBytes(rootca, "")
+	if (rootcert_err == nil) {
+		// add the CA to the certificate chain (as NodeJS does by default)
+		for l := range(rootcert.Certificate) {
+			cert.Certificate = append(cert.Certificate, rootcert.Certificate[l])
+		}
+		cert.Leaf = rootcert.Leaf
+	}
+
+	tls_config := tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.VerifyClientCertIfGiven, MinVersion: tls.VersionTLS12, ServerName: config.Fqdn}
+	tls_config.Rand = rand.Reader
+
 	service := ":" + strconv.FormatInt(config.Pop3Port, 10)
-	listener, err := tls.Listen("tcp", service, &srv_config)
+	listener, err := tls.Listen("tcp", service, &tls_config)
 
 	if err != nil {
 		fmt.Printf("POP3 server error: %s", err)
