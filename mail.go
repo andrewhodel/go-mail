@@ -845,7 +845,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 										// body hash in the headers is the same as the calculated body hash
 										// valid
 
-										fmt.Println("DKIM bh= tag matches hash of body content with length optionally specified by l= tag")
+										//fmt.Println("DKIM bh= tag matches hash of body content with length optionally specified by l= tag")
 
 										// the DKIM public key of the sending domain is in dkim_public_key
 
