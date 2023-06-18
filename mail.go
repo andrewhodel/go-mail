@@ -507,9 +507,12 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 			// to make fast modifications
 			// instead of iterating through 500MB of data each time 1400 bytes is added
 			var lp_start = last_parse_data_block_position - 10
+
 			if (lp_start < 0) {
+				// the start position is 0 at least
 				lp_start = 0
 			}
+
 			smtp_data_edit_block := smtp_data[lp_start:len(smtp_data)]
 
 			// RFC-5321 section 4.5.2. Transparency
@@ -1339,7 +1342,9 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 				// because it is sent in a pointer to a user level closure of a module
 				full_message_func(&smtp_data, &headers, &parts_headers, &parts, &dkim_valid, &ip, &esmtp_authed)
 
+				// reset values
 				smtp_data = nil
+				last_parse_data_block_position = 0
 
 			}
 
