@@ -83,12 +83,13 @@ type Config struct {
 Read `examples/mail_server.go`
 
 ```go
-gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string) bool {
+gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) bool {
 
 	// from_address		MAIL FROM value
 	// ip			ip address of the sending client
 	// auth_login		ESTMP AUTH login
 	// auth_password	ESTMP AUTH password
+	// esmtp_authed		ESTMP authed status (set in this closure)
 
 	// MAIL FROM
 	fmt.Println("mail from", from_address)
@@ -103,12 +104,11 @@ gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login
 	// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
 	return true
 
-}, func(to_address string, ip string, auth_login string, auth_password string) bool {
+}, func(to_address string, ip string, esmtp_authed *bool) bool {
 
 	// to_address		RCPT TO value
 	// ip			ip address of the sending client
-	// auth_login		ESTMP AUTH login
-	// auth_password	ESTMP AUTH password
+	// esmtp_authed		ESTMP authed status
 
 	// RCPT TO
 	fmt.Println("mail to", to_address)
@@ -117,12 +117,11 @@ gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login
 	// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
 	return true
 
-}, func(headers map[string]string, ip string, auth_login string, auth_password string) bool {
+}, func(headers map[string]string, ip string, esmtp_authed *bool) bool {
 
 	// headers		parsed headers
 	// ip			ip address of the sending client
-	// auth_login		ESTMP AUTH login
-	// auth_password	ESTMP AUTH password
+	// esmtp_authed		ESTMP authed status
 
 	// headers
 	// verify the message-id with stored messages to the same address to prevent duplicates
@@ -137,7 +136,7 @@ gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login
 	// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
 	return true
 
-}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, auth_login *string, auth_password *string) {
+}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, esmtp_authed *bool) {
 
 	// email_data		raw email data as received (headers and body)
 	// headers		parsed headers
@@ -145,8 +144,7 @@ gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login
 	// parts		each body block
 	// dkim_valid		true if DKIM validated by the domain's public key
 	// ip			ip address of the sending client
-	// auth_login		ESTMP AUTH login
-	// auth_password	ESTMP AUTH password
+	// esmtp_authed		ESTMP authed status
 
 	fmt.Println("full email received, length", len(*email_data))
 	fmt.Println("dkim valid:", *dkim_valid)

@@ -38,10 +38,10 @@ import (
 	"github.com/andrewhodel/go-ip-ac"
 )
 
-type mail_from_func func(string, string, string, string) bool
-type rcpt_to_func func(string, string, string, string) bool
-type headers_func func(map[string]string, string, string, string) bool
-type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *string, *string)
+type mail_from_func func(string, string, string, string, *bool) bool
+type rcpt_to_func func(string, string, *bool) bool
+type headers_func func(map[string]string, string, *bool) bool
+type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *bool)
 type pop3_auth_func func(string, string, string, string) bool
 type pop3_stat_func func(string) (string, string)
 type pop3_list_func func(string) (string, []string, []string)
@@ -161,7 +161,7 @@ func ParseTags(b []byte) (map[string]string, []string) {
 }
 
 // execute and respond to a command
-func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, mail_from *string, to_address *string, parse_data *bool, sent_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, esmtp_authed *bool, mail_from *string, to_address *string, parse_data *bool, sent_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
@@ -297,7 +297,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 		*mail_from = string(s)
 
-		var mail_from_authed = mail_from_func(string(s), ip, *auth_login, *auth_password)
+		var mail_from_authed = mail_from_func(string(s), ip, *auth_login, *auth_password, esmtp_authed)
 
 		if (mail_from_authed == false) {
 
@@ -330,7 +330,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 		*to_address = string(s)
 
-		*authed = rcpt_to_func(string(s), ip, *auth_login, *auth_password)
+		*authed = rcpt_to_func(string(s), ip, esmtp_authed)
 
 		if (*authed == true) {
 			conn.Write([]byte("250 OK\r\n"))
@@ -401,6 +401,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 	}
 
 	authed := false
+	esmtp_authed := false
 	auth_login := ""
 	auth_password := ""
 	login_status := 0
@@ -486,7 +487,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 				if (len(line) > 0) {
 					// do not send an empty line to smtpExecCmd()
-					smtpExecCmd(ip_ac, using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &mail_from, &to_address, &parse_data, &sent_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+					smtpExecCmd(ip_ac, using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &esmtp_authed, &mail_from, &to_address, &parse_data, &sent_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 				}
 
 				if (len(smtp_data) + 2 >= len(line) && len(smtp_data) >= 2 && len(line) + 2 <= len(smtp_data)) {
@@ -562,7 +563,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 							if (headers_sent == false) {
 								// send the headers for validation
-								authed = headers_func(headers, ip, auth_login, auth_password)
+								authed = headers_func(headers, ip, &esmtp_authed)
 
 								if (authed == false) {
 									conn.Write([]byte("221 not authorized\r\n"))
@@ -1312,7 +1313,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 				// full email received
 				// none of the data passed in the pointers should be accessed after this
 				// because it is sent in a pointer to a user level closure of a module
-				full_message_func(&smtp_data, &headers, &parts_headers, &parts, &dkim_valid, &ip, &auth_login, &auth_password)
+				full_message_func(&smtp_data, &headers, &parts_headers, &parts, &dkim_valid, &ip, &esmtp_authed)
 
 				smtp_data = nil
 
