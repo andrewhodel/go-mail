@@ -50,6 +50,7 @@ type OutboundMail struct {
 	DkimDomain			string			DKIM domain (address of DKIM public key TXT record)
 	DkimSigningAlgo			string			DKIM signing algorithm (rsa-sha256 supported)
 	DkimExpireSeconds		int			DKIM seconds from send time to expire (default 3600)
+	MessageId				string
 }
 ```
 

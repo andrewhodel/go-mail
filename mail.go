@@ -77,6 +77,7 @@ type OutboundMail struct {
 	DkimDomain			string
 	DkimSigningAlgo			string
 	DkimExpireSeconds		int
+	MessageId			string
 }
 
 type Esmtp struct {
@@ -2282,6 +2283,11 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	}
 
 	buf := bytes.Buffer{}
+
+	if (outbound_mail.MessageId != "") {
+		// add message id header
+		headers["message-id"] = outbound_mail.MessageId
+	}
 
 	// write from header first
 	// required in this order for DKIM validation, often
