@@ -841,16 +841,32 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 										//fmt.Println("dkim_public_x509_key", dkim_public_x509_key)
 
 										// create the canonicalized header string based on the field specified in the h= tag
+										// remove spaces from each field
+										dkim_hp["h"] = strings.ReplaceAll(dkim_hp["h"], " ", "")
+										// lowercase all field names
+										dkim_hp["h"] = strings.ToLower(dkim_hp["h"])
 										var canon_h = strings.Split(dkim_hp["h"], ":")
 
-										// empty duplicates
-										for d := range canon_h {
-											for dd := range canon_h {
+										// remove duplicates
+										var d = 0
+										for {
+
+											if (d >= len(canon_h)) {
+												// last entry
+												break
+											}
+
+											for dd := len(canon_h)-1; dd >= 0; dd-- {
 												if (canon_h[dd] == canon_h[d] && dd != d) {
-													// empty duplicate value
-													canon_h[dd] = ""
+													// remove duplicate value
+													//fmt.Println("remove duplicate", dd, canon_h[dd])
+													copy(canon_h[dd:], canon_h[dd+1:])
+													canon_h = canon_h[:len(canon_h)-1]
 												}
 											}
+
+											d += 1
+
 										}
 
 										//fmt.Println("header fields to be canonicalized", canon_h)
@@ -866,7 +882,9 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 											// relaxed header canonicalization
 
 											for h := range canon_h {
-												var h_name = strings.ToLower(canon_h[h])
+
+												var h_name = canon_h[h]
+												//fmt.Println("h_name", h_name)
 
 												var is_real = false
 												for r := range real_headers {
@@ -882,6 +900,8 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 													canonicalized_header_string = canonicalized_header_string + h_name + ":" + headers[h_name] + "\r\n"
 												}
 											}
+
+											//fmt.Println("\n\ncanonicalized_header_string", canonicalized_header_string)
 
 											// add the DKIM header that was used
 											// with no newlines, an empty b= tag and a space for each wsp sequence
@@ -1853,7 +1873,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 		var canonicalized_header_string = ""
 
 		// relaxed header canonicalization
-		// lowercause key names
+		// lowercase key names
 		// no spaces on either side of :
 		canonicalized_header_string = "from:" + outbound_mail.From.String() + "\r\n"
 
