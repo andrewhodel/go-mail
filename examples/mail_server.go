@@ -125,6 +125,7 @@ func main() {
 		// ip			ip address
 		// auth_login		login
 		// auth_password	password
+		// shared_secret	auth shared secret
 
 		fmt.Println("POP3 server auth login", auth_login, "password", auth_password, "shared_secret", shared_secret)
 
