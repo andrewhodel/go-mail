@@ -289,7 +289,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 		i1 := bytes.Index(c, []byte("<"))
 		i2 := bytes.Index(c, []byte(">"))
 		s := make([]byte, 0)
-		if (i1 >= 0 || i2 >= 0 || i2 < i1) {
+		if (i1 > -1 && i2 > -1) {
 			s = c[i1+1:i2]
 		}
 
@@ -319,7 +319,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 		i1 := bytes.Index(c, []byte("<"))
 		i2 := bytes.Index(c, []byte(">"))
 		s := make([]byte, 0)
-		if (i1 >= 0 || i2 >= 0 || i2 < i1) {
+		if (i1 > -1 && i2 > -1) {
 			//fmt.Printf("found < and > in: '%s'\n", c)
 			s = c[i1+1:i2]
 		}
