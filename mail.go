@@ -77,7 +77,7 @@ type OutboundMail struct {
 	DkimDomain			string
 	DkimSigningAlgo			string
 	DkimExpireSeconds		int
-	MessageId			string
+	Headers				map[string]string
 }
 
 type Esmtp struct {
@@ -1993,7 +1993,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
 	}
 
-	headers["From"] = outbound_mail.From.String()
+	headers["from"] = outbound_mail.From.String()
 
 	if (len(outbound_mail.To) > 0) {
 		var th = ""
@@ -2001,7 +2001,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 			th += outbound_mail.To[i].String() + ","
 		}
 		th = strings.TrimRight(th, ",")
-		headers["To"] = th
+		headers["to"] = th
 	}
 
 	if (len(outbound_mail.Cc) > 0) {
@@ -2010,7 +2010,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 			cch += outbound_mail.Cc[i].String() + ","
 		}
 		cch = strings.TrimRight(cch, ",")
-		headers["Cc"] = cch
+		headers["cc"] = cch
 	}
 
 	if (len(outbound_mail.Bcc) > 0) {
@@ -2019,11 +2019,11 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 			bcch += outbound_mail.Bcc[i].String() + ","
 		}
 		bcch = strings.TrimRight(bcch, ",")
-		headers["Bcc"] = bcch
+		headers["bcc"] = bcch
 	}
 
 
-	headers["Subject"] = outbound_mail.Subj
+	headers["subject"] = outbound_mail.Subj
 
 	if (outbound_mail.SendingHost == "") {
 		// set to localhost
@@ -2314,16 +2314,16 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
 	buf := bytes.Buffer{}
 
-	if (outbound_mail.MessageId != "") {
-		// add message id header
-		headers["message-id"] = outbound_mail.MessageId
+	// copy defined headers to headers that are sent
+	for k,v := range outbound_mail.Headers {
+		headers[strings.ToLower(k)] = v
 	}
 
 	// write from header first
 	// required in this order for DKIM validation, often
-	buf.Write([]byte("From: " + headers["From"] + "\r\n"))
-	conn.Write([]byte("From: " + headers["From"] + "\r\n"))
-	delete(headers, "From")
+	buf.Write([]byte("from: " + headers["from"] + "\r\n"))
+	conn.Write([]byte("from: " + headers["from"] + "\r\n"))
+	delete(headers, "from")
 
 	// send DATA and read response
 	for k,v := range headers {
