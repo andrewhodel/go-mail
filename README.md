@@ -10,6 +10,7 @@ Include the module and easily integrate an email client or a server with closure
 * DKIM {RFC 6376}
 
 * POP3 {RFC 1939} (with {RFC 8314} TLS)
+* IMAP4 {RFC 3501} (INCOMPLETE, WIP, BETA)
 ```
 
 # Functions
@@ -23,6 +24,9 @@ SmtpServer()
 
 Pop3Server()
 	Start POP3 Server with TLS, there are closures for each step of the POP3 process.
+
+Imap4Server()
+	Start IMAP4 Server with TLS, there are closures for each step of the IMAP4 process.
 
 ParseTags()
 	Parse string with key=value tags to map[string]string.

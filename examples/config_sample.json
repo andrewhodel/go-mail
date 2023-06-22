@@ -1,4 +1,5 @@
 {
+"imap4Port": 993,
 "pop3Port": 995,
 "smtpTLSPorts": [465],
 "smtpNonTLSPorts": [25,587],

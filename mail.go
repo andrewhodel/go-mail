@@ -47,17 +47,33 @@ type pop3_stat_func func(string) (string, string)
 type pop3_list_func func(string) (string, []string, []string)
 type pop3_retr_func func(string, string) string
 type pop3_dele_func func(string, string) (bool, string)
+type imap4_auth_func func(string, string, string) (bool)
+type imap4_list_func func(string, string) ([]string)
+type imap4_select_func func(string, string) (int, []string, int, string, string)
+type imap4_fetch_func func(string, []string, []string) ([]Imap4Message)
+type imap4_store_func func(string, string, string, string, string) (bool)
+type imap4_close_func func(string) (bool)
 
 type Config struct {
 	SmtpTLSPorts			[]int64	`json:"smtpTLSPorts"`
 	SmtpNonTLSPorts			[]int64	`json:"smtpNonTLSPorts"`
 	SmtpMaxEmailSize		uint64	`json:"smtpMaxEmailSize"`
+	Imap4Port			int64	`json:"imap4Port"`
 	Pop3Port			int64	`json:"pop3Port"`
 	SslKey				string	`json:"sslKey"`
 	SslCert				string	`json:"sslCert"`
 	SslCa				string	`json:"sslCa"`
 	LoadCertificatesFromFiles	bool	`json:"loadCertificatesFromFiles"`
 	Fqdn				string	`json:"fqdn"`
+}
+
+type Imap4Message struct {
+	Uid				string
+	InternalDate			time.Time
+	Flags				[]string
+	Body				[]byte
+	Headers				map[string]string
+	Rfc822Size			int
 }
 
 type OutboundMail struct {
@@ -1510,7 +1526,7 @@ func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func, p
 	}
 
 	if err != nil {
-		fmt.Printf("SMTP server did not load TLS certificates: %s\n", err)
+		fmt.Printf("POP3 server did not load TLS certificates: %s\n", err)
 		os.Exit(1)
 	}
 
@@ -1578,9 +1594,9 @@ func pop3Cw(conn net.Conn, b []byte) {
 // execute and respond to a command
 func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string, authed *bool, auth_login *string, auth_password *string, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
-	// each command can be up to 512 bytes and the buffer is that big
-	// they are ended with \r\n so remove everything from that
-	c = bytes.Split(c, []byte("\r\n"))[0]
+	// each command can be up to 512 bytes
+	// remove \r\n from the command
+	c = bytes.TrimRight(c, "\r\n")
 
 	//fmt.Printf("POP3 command: %s\n", c)
 
@@ -1843,6 +1859,568 @@ func pop3TimestampBanner(fqdn string) (string) {
 	timestamp_banner := "<1896." + strconv.FormatInt(time.Now().Unix(), 10) + "@" + fqdn + ">"
 
 	return timestamp_banner
+
+}
+
+func Imap4Server(config Config, ip_ac ipac.Ipac, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func) {
+
+	var cert tls.Certificate
+	var err error
+	var rootca []byte
+	if (config.LoadCertificatesFromFiles == true) {
+		cert, err = tls.LoadX509KeyPair(config.SslCert, config.SslKey)
+		rootca, _ = os.ReadFile(config.SslCa)
+	} else {
+		cert, err = tls.X509KeyPair([]byte(config.SslCert), []byte(config.SslKey))
+		rootca = []byte(config.SslCa)
+	}
+
+	if err != nil {
+		fmt.Printf("IMAP4 server did not load TLS certificates: %s\n", err)
+		os.Exit(1)
+	}
+
+	rootcert, rootcert_err := CertFromPemBytes(rootca, "")
+	if (rootcert_err == nil) {
+		// add the CA to the certificate chain (as NodeJS does by default)
+		for l := range(rootcert.Certificate) {
+			cert.Certificate = append(cert.Certificate, rootcert.Certificate[l])
+		}
+		cert.Leaf = rootcert.Leaf
+	}
+
+	tls_config := tls.Config{Certificates: []tls.Certificate{cert}, ClientAuth: tls.VerifyClientCertIfGiven, MinVersion: tls.VersionTLS12, ServerName: config.Fqdn}
+	tls_config.Rand = rand.Reader
+
+	service := ":" + strconv.FormatInt(config.Imap4Port, 10)
+	listener, err := tls.Listen("tcp", service, &tls_config)
+
+	if err != nil {
+		fmt.Printf("IMAP4 server error: %s", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("IMAP4 listening on port " + strconv.FormatInt(config.Imap4Port, 10))
+
+	for {
+
+		conn, err := listener.Accept()
+		if err != nil {
+			//fmt.Printf("IMAP4 server: %s", err)
+			break
+		}
+		defer conn.Close()
+
+		// take the port number off the address
+		var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+		_ = port
+		_ = iperr
+
+		if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+			conn.Close()
+			continue
+		}
+
+		//fmt.Printf("IMAP4 server: connection from %s\n", conn.RemoteAddr())
+
+		go imap4HandleClient(ip_ac, ip, conn, config, imap4_auth_func, imap4_list_func, imap4_select_func, imap4_fetch_func, imap4_store_func, imap4_close_func)
+
+	}
+
+}
+
+// write to the connection
+func imap4Cw(conn net.Conn, b []byte) {
+
+	n, err := conn.Write(b)
+
+	_ = n
+	if err != nil {
+		//fmt.Printf("IMAP4 conn.Write() error: %s\n", err)
+	}
+
+}
+
+// execute and respond to a command
+func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *bool, auth_login *string, auth_password *string, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func) {
+
+	// remove \r\n from the command
+	c = bytes.TrimRight(c, "\r\n")
+
+	//fmt.Printf("IMAP4 command: %s\n", c)
+
+	// get the sequence number position
+	seq_pos := bytes.Index(c, []byte(" "))
+
+	if (seq_pos == -1) {
+		// no sequence number exists
+		conn.Write([]byte("* BAD no sequence number\r\n"))
+		return
+	}
+
+	// get the sequence number
+	seq := c[0:seq_pos]
+	// remove the sequence number from the command
+	c = c[seq_pos+1:]
+
+	//fmt.Printf("IMAP4 command (%s): %s\n", seq, c)
+
+	if (bytes.Index(c, []byte("LOGIN")) == 0) {
+
+		// USER name
+		s := bytes.Split(c, []byte(" "))
+
+		if (len(s) != 3) {
+			conn.Write([]byte(string(seq) + " NO invalid credentials\r\n"))
+		} else {
+			// store the credentials
+			*auth_login = string(s[1])
+			*auth_password = string(s[2])
+
+			// validate credentials with closure
+			*authed = imap4_auth_func(ip, *auth_login, *auth_password)
+
+			if (*authed == true) {
+
+				//fmt.Println("IMAP4 authenticated")
+
+				// valid auth
+				ipac.ModifyAuth(&ip_ac, 2, ip)
+
+				conn.Write([]byte(string(seq) + " OK LOGIN completed\r\n"))
+
+			} else {
+
+				//fmt.Println("IMAP4 not authenticated")
+
+				// invalid auth
+				ipac.ModifyAuth(&ip_ac, 1, ip)
+
+				conn.Write([]byte(string(seq) + " NO invalid credentials\r\n"))
+				conn.Close()
+
+			}
+
+		}
+
+	} else if (bytes.Index(c, []byte("CAPABILITY")) == 0) {
+
+		conn.Write([]byte("* CAPABILITY IMAP4rev1 AUTH=PLAIN\r\n"))
+		conn.Write([]byte(string(seq) + " OK CAPABILITY completed\r\n"))
+
+	} else if (bytes.Index(c, []byte("LIST")) == 0) {
+
+		// a slice with each response line is returned
+		// the * LIST () "" "" lines
+
+		/*
+		C: A101 LIST "" ""
+		S: * LIST (\Noselect) "/" ""
+		S: A101 OK LIST Completed
+		C: A102 LIST #news.comp.mail.misc ""
+		S: * LIST (\Noselect) "." #news.
+		S: A102 OK LIST Completed
+		C: A103 LIST /usr/staff/jones ""
+		S: * LIST (\Noselect) "/" /
+		S: A103 OK LIST Completed
+		C: A202 LIST ~/Mail/ %
+		S: * LIST (\Noselect) "/" ~/Mail/foo
+		S: * LIST () "/" ~/Mail/meetings
+		S: A202 OK LIST completed
+		*/
+
+		// remove command name
+		c = bytes.TrimLeft(c, "LIST ")
+
+		list_response := imap4_list_func(*auth_login, string(c))
+
+		if (len(list_response) == 0) {
+			// if empty, IMAP4 server will instruct the client to use SELECT with a "* LIST" response
+			conn.Write([]byte("* LIST\r\n"))
+		} else {
+			for l := range(list_response) {
+				conn.Write([]byte(string(list_response[l]) + "\r\n"))
+			}
+		}
+
+		conn.Write([]byte(string(seq) + " OK LIST completed\r\n"))
+
+	} else if (bytes.Index(c, []byte("SELECT")) == 0) {
+
+		/*
+		C:   a002 select inbox
+		S:   * 18 EXISTS
+		S:   * FLAGS (\Answered \Flagged \Deleted \Seen \Draft)
+		S:   * 2 RECENT
+		S:   * OK [UNSEEN 17] Message 17 is the first unseen message
+		S:   * OK [UIDVALIDITY 3857529045] UID value that is unique to the mailbox
+		S:   a002 OK [READ-WRITE] SELECT completed
+		*/
+
+		// remove command name
+		c = bytes.TrimLeft(c, "SELECT ")
+
+		// returns int, []string, int, string, string
+		// total messages
+		// slice of flags
+		// count of unseen messages
+		// first unseen message id
+		// uid validity string (this is forever unique to the mailbox and must increment if the mailbox is deleted)
+		total_messages, flags, recent_messages, first_unseen_message_id, uid_validity := imap4_select_func(*auth_login, string(c))
+
+		flags_string := ""
+		for f := range(flags) {
+			flags_string += flags[f] + " "
+		}
+		strings.TrimRight(flags_string, " ")
+
+		conn.Write([]byte("* " + strconv.Itoa(total_messages) + " EXISTS\r\n"))
+		conn.Write([]byte("* FLAGS (" + flags_string + ")\r\n"))
+		conn.Write([]byte("* " + strconv.Itoa(recent_messages) + " RECENT\r\n"))
+		conn.Write([]byte("* OK [UNSEEN " + first_unseen_message_id + "] Message " + first_unseen_message_id + " is the first unseen message\r\n"))
+		conn.Write([]byte("* OK [UIDVALIDITY " + uid_validity + "] UID value that is unique to the mailbox\r\n"))
+
+		conn.Write([]byte(string(seq) + " OK [READ-WRITE] SELECT completed\r\n"))
+
+	} else if (bytes.Index(c, []byte("FETCH")) == 0) {
+
+		/*
+		FETCH 1:2 (INTERNALDATE UID RFC822.SIZE FLAGS BODY.PEEK[HEADER.FIELDS (date subject from to cc message-id in-reply-to references content-type x-priority x-uniform-type-identifier x-universally-unique-identifier list-id list-unsubscribe bimi-indicator bimi-location x-bimi-indicator-hash authentication-results dkim-signature)])
+		*/
+
+		// remove command name
+		c = bytes.TrimLeft(c, "FETCH ")
+
+		fetch_arguments := bytes.SplitN(c, []byte(" ("), 2)
+		var item_names []string
+
+		if (len(fetch_arguments) != 2) {
+
+			// item_names is a macro
+
+			/*
+			FULL
+			 Macro equivalent to: (FLAGS INTERNALDATE RFC822.SIZE ENVELOPE
+			 BODY)
+			*/
+
+			// split by space character, not " (" sequence
+			fetch_arguments := bytes.SplitN(c, []byte(" "), 2)
+
+			if (len(fetch_arguments) != 2) {
+				// invalid command
+				conn.Write([]byte(string(seq) + " BAD unknown command\r\n"))
+				return
+			}
+
+			// add macro to item_names
+			item_names = append(item_names, string(fetch_arguments[1]))
+
+		} else {
+			// parse item_names
+
+			// remove last ) from second argument
+			fetch_arguments[1] = bytes.TrimRight(fetch_arguments[1], ")")
+
+			// get item names
+			var last_item []byte
+			inner_set := false
+			for l := range(fetch_arguments[1]) {
+
+				ch := fetch_arguments[1][l]
+
+				if (ch == ']') {
+					// add close of inner_set
+					last_item = append(last_item, ch)
+					inner_set = false
+					continue
+				}
+
+				if (ch == '[') {
+					inner_set = true
+				}
+
+				if (ch == ' ' && inner_set == false) {
+
+					// add last_item to item_names
+					item_names = append(item_names, string(last_item))
+					last_item = nil
+					continue
+				}
+
+				last_item = append(last_item, ch)
+
+			}
+
+			if (last_item != nil) {
+				// add last_item to item_names
+				item_names = append(item_names, string(last_item))
+			}
+
+		}
+
+		// get sequence set
+		seq_set := strings.Split(string(fetch_arguments[0]), ":")
+
+		if (len(seq_set) != 2) {
+			// one message id in the string
+			seq_set = nil
+			// add it from fetch_arguments
+			seq_set = append(seq_set, string(fetch_arguments[0]))
+		}
+
+		// returns []Imap4Message
+		messages := imap4_fetch_func(*auth_login, seq_set, item_names)
+
+		// parse messages and send the data per the IMAP4 protocol
+
+		/*
+		C:   a003 fetch 12 full
+		S:   * 12 FETCH (FLAGS (\Seen) INTERNALDATE "17-Jul-1996 02:44:25 -0700"
+		      RFC822.SIZE 4286 ENVELOPE ("Wed, 17 Jul 1996 02:23:25 -0700 (PDT)"
+		      "IMAP4rev1 WG mtg summary and minutes"
+		      (("Terry Gray" NIL "gray" "cac.washington.edu"))
+		      (("Terry Gray" NIL "gray" "cac.washington.edu"))
+		      (("Terry Gray" NIL "gray" "cac.washington.edu"))
+		      ((NIL NIL "imap" "cac.washington.edu"))
+		      ((NIL NIL "minutes" "CNRI.Reston.VA.US")
+		      ("John Klensin" NIL "KLENSIN" "MIT.EDU")) NIL NIL
+		      "<B27397-0100000@cac.washington.edu>")
+		      BODY ("TEXT" "PLAIN" ("CHARSET" "US-ASCII") NIL NIL "7BIT" 3028
+		      92))
+		S:   a003 OK FETCH completed
+		*/
+
+		/*
+		C:   a004 fetch 12 body[header]
+		S:   * 12 FETCH (BODY[HEADER] {342}
+		S:   Date: Wed, 17 Jul 1996 02:23:25 -0700 (PDT)
+		S:   From: Terry Gray <gray@cac.washington.edu>
+		S:   Subject: IMAP4rev1 WG mtg summary and minutes
+		S:   To: imap@cac.washington.edu
+		S:   Cc: minutes@CNRI.Reston.VA.US, John Klensin <KLENSIN@MIT.EDU>
+		S:   Message-Id: <B27397-0100000@cac.washington.edu>
+		S:   MIME-Version: 1.0
+		S:   Content-Type: TEXT/PLAIN; CHARSET=US-ASCII
+		S:
+		S:   )
+		S:   a004 OK FETCH completed
+		*/
+
+		/*
+		type Imap4Message struct {
+			Uid				string
+			InternalDate			time.Time
+			Flags				[]string
+			Body				[]byte
+			Headers				map[string]string
+			Rfc822Size			int
+		}
+		*/
+
+		// respond with each requested value
+		for msg := range(messages) {
+
+			m := messages[msg]
+
+			fmt.Println("sending ", m.Uid)
+
+			conn.Write([]byte("* " + m.Uid + " FETCH ("))
+			fmt.Print(string([]byte("* " + m.Uid + " FETCH (")))
+
+			for i := range(item_names) {
+
+				if (item_names[i] == "INTERNALDATE" || item_names[i] == "FULL" || item_names[i] == "ALL" || item_names[i] == "FAST") {
+
+					// send the date as specified by RFC 3501
+					conn.Write([]byte("INTERNALDATE \"17-Jul-2023 02:44:25 -0700\""))
+					fmt.Print(string([]byte("INTERNALDATE \"17-Jul-2023 02:44:25 -0700\"")))
+					//conn.Write([]byte("INTERNALDATE \"" + m.InternalDate.String() + "\""))
+					//fmt.Print(string([]byte("INTERNALDATE \"" + m.InternalDate.String() + "\"")))
+
+				} else if (item_names[i] == "UID") {
+
+					// send the unique identifier of the message as specified by RFC 3501
+					conn.Write([]byte("UID " + m.Uid))
+					fmt.Print(string([]byte("UID " + m.Uid)))
+
+				} else if (item_names[i] == "FLAGS" || item_names[i] == "FULL" || item_names[i] == "ALL" || item_names[i] == "FAST") {
+
+					f_string := ""
+					for f := range(m.Flags) {
+						f_string += m.Flags[f] + " "
+					}
+					// remove last space character
+					f_string = strings.TrimRight(f_string, " ")
+
+					// write flags
+					conn.Write([]byte("FLAGS (" + f_string + ")"))
+					fmt.Print(string([]byte("FLAGS (" + f_string + ")")))
+
+				} else if (item_names[i] == "RFC822.SIZE" || item_names[i] == "FULL" || item_names[i] == "ALL" || item_names[i] == "FAST") {
+
+					// send the size as specified by RFC 822
+					conn.Write([]byte("RFC822.SIZE " + strconv.Itoa(m.Rfc822Size)))
+					fmt.Print(string([]byte("RFC822.SIZE " + strconv.Itoa(m.Rfc822Size))))
+
+				} else if (item_names[i] == "ENVELOPE" || item_names[i] == "FULL" || item_names[i] == "ALL") {
+
+					/*
+					The envelope structure of the message.  This is computed by the
+					server by parsing the [RFC-2822] header into the component
+					parts, defaulting various fields as necessary.
+					*/
+
+				} else if (item_names[i] == "BODY" || item_names[i] == "BODYSTRUCTURE" || item_names[i] == "FULL" || item_names[i] == "ALL" || item_names[i] == "FAST") {
+
+					/*
+					The [MIME-IMB] body structure of the message.  This is computed
+					by the server by parsing the [MIME-IMB] header fields in the
+					[RFC-2822] header and [MIME-IMB] headers.
+					*/
+
+				} else if (strings.Index(item_names[i], "BODY.PEEK[") == 0) {
+
+					/*
+					BODY.PEEK[<section>]<<partial>>
+					An alternate form of BODY[<section>] that does not implicitly
+					set the \Seen flag.
+					*/
+
+					// only write the headers for now
+					var header_string = ""
+					for h := range(m.Headers) {
+						header_string += h + ": " + m.Headers[h] + "\r\n"
+					}
+
+					conn.Write([]byte(item_names[i] + " {" + strconv.Itoa(len(header_string)) + "}\r\n" + header_string + "\r\n"))
+					fmt.Print(string([]byte(item_names[i] + " {" + strconv.Itoa(len(header_string)) + "}\r\n" + header_string + "\r\n")))
+
+				} else if (strings.Index(item_names[i], "BODY[") == 0) {
+
+					/*
+					The text of a particular body section.  The section
+					specification is a set of zero or more part specifiers
+					delimited by periods.  A part specifier is either a part number
+					or one of the following: HEADER, HEADER.FIELDS,
+					HEADER.FIELDS.NOT, MIME, and TEXT.  An empty section
+					specification refers to the entire message, including the
+					header.
+					*/
+
+				}
+
+				if (i + 1 < len(item_names)) {
+					// send space character between each item
+					conn.Write([]byte(" "))
+					fmt.Print(string([]byte(" ")))
+
+				}
+
+			}
+
+			// send end of message character sequence
+			conn.Write([]byte(")\r\n"))
+			fmt.Print(string([]byte(")\r\n")))
+
+		}
+
+		conn.Write([]byte(string(seq) + " OK FETCH completed\r\n"))
+		fmt.Print(string([]byte(string(seq) + " OK FETCH completed\r\n")))
+
+	} else if (bytes.Index(c, []byte("STORE")) == 0) {
+
+		// not implemented
+		//conn.Write([]byte(string(seq) + " OK STORE completed\r\n"))
+		conn.Write([]byte(string(seq) + " BAD\r\n"))
+
+	} else if (bytes.Index(c, []byte("CLOSE")) == 0) {
+
+		conn.Write([]byte(string(seq) + " OK CLOSE completed\r\n"))
+
+	} else if (bytes.Index(c, []byte("LOGOUT")) == 0) {
+
+		conn.Write([]byte(string(seq) + " OK LOGOUT completed\r\n"))
+		conn.Close()
+
+	} else {
+
+		conn.Write([]byte(string(seq) + " BAD unknown command\r\n"))
+
+	}
+
+}
+
+func imap4HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func) {
+
+	defer conn.Close()
+
+	fmt.Println("IMAP4 client connected")
+
+	// send the first connection message
+	imap4Cw(conn, []byte("* OK IMAP4rev1 Service Ready\r\n"))
+
+	sent_cmds := 0
+	sent_bytes := 0
+
+	authed := false
+	auth_login := ""
+	auth_password := ""
+
+	// IMAP 4 has a maximum command length that is not defined in the RFC
+	// 1MB
+	buf := make([]byte, 1000 * 1000 * 1)
+
+	for {
+
+		b := make([]byte, 1024)
+
+		n, n_err := conn.Read(buf)
+		sent_bytes += n
+
+		if (n_err != nil) {
+			//fmt.Printf("IMAP4 server: %s\n", n_err)
+			break
+		}
+
+		if (sent_bytes > 1024 * 1000 * 3) {
+			// client sent too much data
+			conn.Write([]byte("* NO unauthenticated send limit exceeded\r\n"))
+			conn.Close()
+			break
+		}
+
+		if (sent_cmds > 5 && authed == false) {
+			// too many commands while not authenticated
+			conn.Write([]byte("* NO unauthenticated send limit exceeded\r\n"))
+			conn.Close()
+			break
+		}
+
+		// add b to buf
+		for l := range b {
+			buf = append(buf, b[l])
+		}
+		// clear b
+		b = nil
+
+		var cmd_end_pos = bytes.Index(buf, []byte("\r\n"))
+
+		if (cmd_end_pos != -1) {
+
+			sent_cmds += 1
+
+			// execute the command
+			imap4ExecCmd(ip_ac, ip, conn, buf[0:cmd_end_pos], &authed, &auth_login, &auth_password, imap4_auth_func, imap4_list_func, imap4_select_func, imap4_fetch_func, imap4_store_func, imap4_close_func)
+
+			// clear buf
+			buf = nil
+
+		}
+
+	}
+
+	//fmt.Println("IMAP4 server connection closed")
 
 }
 
