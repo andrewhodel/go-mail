@@ -1855,6 +1855,11 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	// Setup headers
 	headers := make(map[string]string)
 
+	// copy defined headers to headers that are sent
+	for k,v := range outbound_mail.Headers {
+		headers[strings.ToLower(k)] = v
+	}
+
 	if (len(outbound_mail.DkimPrivateKey) > 0 && outbound_mail.DkimDomain != "") {
 
 		var dkim_header = bytes.Buffer{}
@@ -2313,11 +2318,6 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	}
 
 	buf := bytes.Buffer{}
-
-	// copy defined headers to headers that are sent
-	for k,v := range outbound_mail.Headers {
-		headers[strings.ToLower(k)] = v
-	}
 
 	// write from header first
 	// required in this order for DKIM validation, often
