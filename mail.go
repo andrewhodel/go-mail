@@ -2043,7 +2043,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 		if (len(list_response) == 0) {
 			// if empty, IMAP4 server will instruct the client to use SELECT with a "* LIST" response
-			conn.Write([]byte("* LIST () \"/\" \"\"\r\n"))
+			conn.Write([]byte("* LIST () \".\" INBOX\r\n"))
 		} else {
 			for l := range(list_response) {
 				conn.Write([]byte(string(list_response[l]) + "\r\n"))
@@ -2365,7 +2365,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 				}
 
-				if (i + 1 < len(item_names)) {
+				if (i + 1 < len(item_names) && i != 0) {
 					// send space character between each item
 					conn.Write([]byte(" "))
 					fmt.Print(string([]byte(" ")))
