@@ -2395,6 +2395,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 	} else if (bytes.Index(c, []byte("LOGOUT")) == 0) {
 
+		conn.Write([]byte("* BYE IMAP4rev1 server terminating connection\r\n"))
 		conn.Write([]byte(string(seq) + " OK LOGOUT completed\r\n"))
 		conn.Close()
 
