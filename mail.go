@@ -1973,6 +1973,13 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		if (len(s) != 3) {
 			conn.Write([]byte(string(seq) + " NO invalid credentials\r\n"))
 		} else {
+
+			// remove " from start and end of login and password
+			s[1] = bytes.TrimLeft(s[1], "\"")
+			s[1] = bytes.TrimRight(s[1], "\"")
+			s[2] = bytes.TrimLeft(s[2], "\"")
+			s[2] = bytes.TrimRight(s[2], "\"")
+
 			// store the credentials
 			*auth_login = string(s[1])
 			*auth_password = string(s[2])
@@ -2005,7 +2012,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 	} else if (bytes.Index(c, []byte("CAPABILITY")) == 0) {
 
-		conn.Write([]byte("* CAPABILITY IMAP4rev1 AUTH=PLAIN\r\n"))
+		conn.Write([]byte("* CAPABILITY IMAP4rev1\r\n"))
 		conn.Write([]byte(string(seq) + " OK CAPABILITY completed\r\n"))
 
 	} else if (bytes.Index(c, []byte("LIST")) == 0) {
@@ -2036,7 +2043,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 		if (len(list_response) == 0) {
 			// if empty, IMAP4 server will instruct the client to use SELECT with a "* LIST" response
-			conn.Write([]byte("* LIST\r\n"))
+			conn.Write([]byte("* LIST () \"/\" \"\"\r\n"))
 		} else {
 			for l := range(list_response) {
 				conn.Write([]byte(string(list_response[l]) + "\r\n"))
@@ -2082,6 +2089,10 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 		conn.Write([]byte(string(seq) + " OK [READ-WRITE] SELECT completed\r\n"))
 
+	} else if (bytes.Index(c, []byte("SEARCH")) == 0) {
+
+		conn.Write([]byte(string(seq) + " BAD SEARCH not completed\r\n"))
+
 	} else if (bytes.Index(c, []byte("FETCH")) == 0) {
 
 		/*
@@ -2100,8 +2111,8 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 			/*
 			FULL
-			 Macro equivalent to: (FLAGS INTERNALDATE RFC822.SIZE ENVELOPE
-			 BODY)
+			Macro equivalent to: (FLAGS INTERNALDATE RFC822.SIZE ENVELOPE
+			BODY)
 			*/
 
 			// split by space character, not " (" sequence
@@ -2228,9 +2239,43 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 			conn.Write([]byte("* " + m.Uid + " FETCH ("))
 			fmt.Print(string([]byte("* " + m.Uid + " FETCH (")))
 
+			// convert FULL, ALL and FAST macros
+			for i := range(item_names) {
+				if (item_names[i] == "FULL") {
+					item_names = nil
+
+					item_names = append(item_names, "FLAGS")
+					item_names = append(item_names, "INTERNALDATE")
+					item_names = append(item_names, "RFC822.SIZE")
+					item_names = append(item_names, "ENVELOPE")
+					item_names = append(item_names, "BODY")
+
+					break
+				} else if (item_names[i] == "ALL") {
+					item_names = nil
+
+					item_names = append(item_names, "FLAGS")
+					item_names = append(item_names, "INTERNALDATE")
+					item_names = append(item_names, "RFC822.SIZE")
+					item_names = append(item_names, "ENVELOPE")
+
+					break
+				} else if (item_names[i] == "FAST") {
+					item_names = nil
+
+					item_names = append(item_names, "FLAGS")
+					item_names = append(item_names, "INTERNALDATE")
+					item_names = append(item_names, "RFC822.SIZE")
+
+					break
+				}
+			}
+
 			for i := range(item_names) {
 
-				if (item_names[i] == "INTERNALDATE" || item_names[i] == "FULL" || item_names[i] == "ALL" || item_names[i] == "FAST") {
+				if (item_names[i] == "INTERNALDATE") {
+
+					continue
 
 					// send the date as specified by RFC 3501
 					conn.Write([]byte("INTERNALDATE \"17-Jul-2023 02:44:25 -0700\""))
@@ -2240,11 +2285,13 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 				} else if (item_names[i] == "UID") {
 
+					continue
+
 					// send the unique identifier of the message as specified by RFC 3501
 					conn.Write([]byte("UID " + m.Uid))
 					fmt.Print(string([]byte("UID " + m.Uid)))
 
-				} else if (item_names[i] == "FLAGS" || item_names[i] == "FULL" || item_names[i] == "ALL" || item_names[i] == "FAST") {
+				} else if (item_names[i] == "FLAGS") {
 
 					f_string := ""
 					for f := range(m.Flags) {
@@ -2257,13 +2304,17 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 					conn.Write([]byte("FLAGS (" + f_string + ")"))
 					fmt.Print(string([]byte("FLAGS (" + f_string + ")")))
 
-				} else if (item_names[i] == "RFC822.SIZE" || item_names[i] == "FULL" || item_names[i] == "ALL" || item_names[i] == "FAST") {
+				} else if (item_names[i] == "RFC822.SIZE") {
+
+					continue
 
 					// send the size as specified by RFC 822
 					conn.Write([]byte("RFC822.SIZE " + strconv.Itoa(m.Rfc822Size)))
 					fmt.Print(string([]byte("RFC822.SIZE " + strconv.Itoa(m.Rfc822Size))))
 
-				} else if (item_names[i] == "ENVELOPE" || item_names[i] == "FULL" || item_names[i] == "ALL") {
+				} else if (item_names[i] == "ENVELOPE") {
+
+					continue
 
 					/*
 					The envelope structure of the message.  This is computed by the
@@ -2271,7 +2322,9 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 					parts, defaulting various fields as necessary.
 					*/
 
-				} else if (item_names[i] == "BODY" || item_names[i] == "BODYSTRUCTURE" || item_names[i] == "FULL" || item_names[i] == "ALL" || item_names[i] == "FAST") {
+				} else if (item_names[i] == "BODY" || item_names[i] == "BODYSTRUCTURE") {
+
+					continue
 
 					/*
 					The [MIME-IMB] body structure of the message.  This is computed
@@ -2297,6 +2350,8 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 					fmt.Print(string([]byte(item_names[i] + " {" + strconv.Itoa(len(header_string)) + "}\r\n" + header_string + "\r\n")))
 
 				} else if (strings.Index(item_names[i], "BODY[") == 0) {
+
+					continue
 
 					/*
 					The text of a particular body section.  The section
