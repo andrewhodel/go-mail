@@ -8,6 +8,7 @@ import (
 	"net/mail"
 	"crypto/md5"
 	"encoding/hex"
+	"strconv"
 	"strings"
 	"os"
 	"sync"
@@ -692,17 +693,6 @@ func main() {
 		// return []Email
 		// the Body field only needs to be set if requested
 
-		/*
-		type Email struct {
-			Uid				int
-			InternalDate			time.Time
-			Flags				[]string
-			Body				[]byte
-			Headers				map[string]string
-			Rfc822Size			int
-		}
-		*/
-
 		// return emails from selected mailbox
 		var selected_mailbox = "INBOX"
 		var emails []gomail.Email
@@ -756,6 +746,34 @@ func main() {
 
 		// return true on success or false on failure
 		return true
+
+	}, func(auth_login string, search_query string) string {
+
+		// SEARCH
+		// auth_login		login
+		// query		search query
+
+		fmt.Println("IMAP4 SEARCH", auth_login)
+
+		// search messages
+
+		// return emails from selected mailbox
+		var selected_mailbox = "INBOX"
+		var mids = ""
+		message_store_mutex.Lock()
+		for m := range(message_store[auth_login]) {
+			if (message_store[auth_login][m].Mailbox == selected_mailbox) {
+				email := message_store[auth_login][m]
+				mids += strconv.Itoa(email.Uid) + " "
+			}
+		}
+		message_store_mutex.Unlock()
+
+		// remove last space character
+		mids = strings.TrimRight(mids, " ")
+
+		// return "mid mid mid" list of email message ids matching search query
+		return mids
 
 	})
 
