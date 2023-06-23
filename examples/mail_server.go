@@ -364,26 +364,10 @@ func main() {
 
 		fmt.Println("POP3 server auth login", auth_login, "password", auth_password, "shared_secret", shared_secret)
 
-		if (shared_secret != "") {
-			// if there is a shared secret, the APOP command is being used
-
-			// validate the username and get the known password
-
-			// prepend shared_secret to the known password and the md5sum as a hex value will match auth_password if the sent password is valid
-			m := md5.New()
-			m.Write([]byte(shared_secret + "asdf"))
-			valid_sum := hex.EncodeToString(m.Sum(nil))
-
-			fmt.Println("valid_sum", valid_sum)
-
-			if (valid_sum != auth_password) {
-				// the shared secret is invalid
-				return false
-			}
-
+		if (auth_login == "") {
+			// auth_login must be set
+			return false
 		}
-
-		// continue authentication
 
 		// get the email local-part and domain
 		address_parts := strings.Split(auth_login, "@")
@@ -394,17 +378,35 @@ func main() {
 			return false
 		}
 
-		if (address_parts[1] == config.Fqdn) {
-			// this user is from this domain
+		if (address_parts[1] != config.Fqdn) {
+			// this user is not from this domain
+			return false
+		}
 
-			// authenticate the session
-			if (auth_login == "") {
-			} else if (users[auth_login] == auth_password) {
-				// authenticated
-				fmt.Println("authed")
+		if (shared_secret != "") {
+			// if there is a shared secret, the APOP command is being used
+
+			// validate the username and get the known password
+
+			// prepend shared_secret to the known password and the md5sum as a hex value will match auth_password if the sent password is valid
+			m := md5.New()
+			m.Write([]byte(shared_secret + users[auth_login]))
+			valid_sum := hex.EncodeToString(m.Sum(nil))
+
+			fmt.Println("valid_sum", valid_sum)
+
+			if (valid_sum == auth_password) {
+				// the shared secret was used to validate the password
 				return true
 			}
 
+		}
+
+		// not APOP
+		// authenticate the session
+		if (users[auth_login] == auth_password) {
+			// authenticated
+			return true
 		}
 
 		// return true if allowed
