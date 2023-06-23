@@ -2101,6 +2101,10 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		// remove command name
 		c = bytes.TrimLeft(c, "SELECT ")
 
+		// remove start and end " if they exist
+		c = bytes.TrimLeft(c, "\"")
+		c = bytes.TrimRight(c, "\"")
+
 		// InBoX is case-insensitive
 		// always return INBOX
 		if (bytes.Index(bytes.ToLower(c), []byte("inbox")) == 0) {
@@ -2260,23 +2264,12 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		S:   a004 OK FETCH completed
 		*/
 
-		/*
-		type Email struct {
-			Uid				int
-			InternalDate			time.Time
-			Flags				[]string
-			Body				[]byte
-			Headers				map[string]string
-			Rfc822Size			int
-		}
-		*/
-
 		// respond with each requested value
 		for msg := range(messages) {
 
 			m := messages[msg]
 
-			fmt.Println("sending ", strconv.Itoa(m.Uid))
+			fmt.Println("FETCH sending email with UID", strconv.Itoa(m.Uid))
 
 			conn.Write([]byte("* " + strconv.Itoa(m.Uid) + " FETCH ("))
 			fmt.Print(string([]byte("* " + strconv.Itoa(m.Uid) + " FETCH (")))
@@ -2345,8 +2338,6 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 					fmt.Print(string([]byte("FLAGS (" + f_string + ")")))
 
 				} else if (item_names[i] == "RFC822.SIZE") {
-
-					continue
 
 					// send the size as specified by RFC 822
 					conn.Write([]byte("RFC822.SIZE " + strconv.Itoa(m.Rfc822Size)))
