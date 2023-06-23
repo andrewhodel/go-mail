@@ -618,26 +618,32 @@ func main() {
 
 		var total_messages = 0
 		var mailbox_uid_validity = 0
+		var unseen_messages = 0
+		var first_unseen_message = 0
 		// find the mailbox
 		mailboxes_mutex.Lock()
 		for mb := range(mailboxes[auth_login]) {
 			var mailbox = mailboxes[auth_login][mb]
 			if (mailbox.Name == mailbox_name) {
 				total_messages = mailbox.LastMessageId
+				// set the number of unseen messages to all messages
+				unseen_messages = total_messages
+				// set the first unseen message to the first message (1)
+				first_unseen_message = 1
 				mailbox_uid_validity = mailbox.UidValidity
 			}
 		}
 		mailboxes_mutex.Unlock()
 
-		fmt.Println("IMAP4 SELECT returning", total_messages, "total messages in", mailbox_name)
+		fmt.Println("IMAP4 SELECT returning", total_messages, "total messages in", mailbox_name, "with mailbox_uid_validity", mailbox_uid_validity, "messages without \\Seen flag", unseen_messages, "first unseen message", first_unseen_message)
 
 		// return
 		// total messages
 		// slice of flags
-		// count of unseen messages
+		// count of unseen messages (messages without the \Seen flag
 		// first unseen message id
 		// uid validity string (this is forever unique to the mailbox and must increment if the mailbox is deleted)
-		return total_messages, []string{}, 0, 0, mailbox_uid_validity
+		return total_messages, []string{}, unseen_messages, first_unseen_message, mailbox_uid_validity
 
 	}, func(auth_login string, sequence_set []string, item_names []string) ([]gomail.Email) {
 
