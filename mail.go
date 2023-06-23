@@ -43,14 +43,14 @@ type rcpt_to_func func(string, string, *bool) bool
 type headers_func func(map[string]string, string, *bool) bool
 type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *bool)
 type pop3_auth_func func(string, string, string, string) bool
-type pop3_stat_func func(string) (string, string)
-type pop3_list_func func(string) (string, []string, []string)
-type pop3_retr_func func(string, string) string
-type pop3_dele_func func(string, string) (bool, string)
+type pop3_stat_func func(string) (int, int)
+type pop3_list_func func(string) (int, []int, []int)
+type pop3_retr_func func(string, int) string
+type pop3_dele_func func(string, int) (bool, string)
 type imap4_auth_func func(string, string, string) (bool)
-type imap4_list_func func(string, string) ([]string)
-type imap4_select_func func(string, string) (int, []string, int, string, string)
-type imap4_fetch_func func(string, []string, []string) ([]Imap4Message)
+type imap4_list_func func(string, []string, string, string) ([]string)
+type imap4_select_func func(string, string) (int, []string, int, int, int)
+type imap4_fetch_func func(string, []string, []string) ([]Email)
 type imap4_store_func func(string, string, string, string, string) (bool)
 type imap4_close_func func(string) (bool)
 
@@ -67,13 +67,14 @@ type Config struct {
 	Fqdn				string	`json:"fqdn"`
 }
 
-type Imap4Message struct {
-	Uid				string
+type Email struct {
+	Uid				int
 	InternalDate			time.Time
 	Flags				[]string
 	Body				[]byte
 	Headers				map[string]string
 	Rfc822Size			int
+	Mailbox				string
 }
 
 type OutboundMail struct {
@@ -1595,7 +1596,13 @@ func pop3Cw(conn net.Conn, b []byte) {
 func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string, authed *bool, auth_login *string, auth_password *string, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
 	// each command can be up to 512 bytes
-	// remove \r\n from the command
+	// remove null characters from the end of the command
+	for n := len(c)-1; n >= 0; n-- { 
+		if (c[n] == 0) {
+			c = c[0:n]
+		}
+	}
+	// remove \r\n from the end of the command
 	c = bytes.TrimRight(c, "\r\n")
 
 	//fmt.Printf("POP3 command: %s\n", c)
@@ -1697,7 +1704,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 
 		// respond with number of messages and total size of all messages in bytes
 		n_messages, messages_size := pop3_stat_func(*auth_login)
-		conn.Write([]byte("+OK " + n_messages + " " + messages_size + "\r\n"))
+		conn.Write([]byte("+OK " + strconv.Itoa(n_messages) + " " + strconv.Itoa(messages_size) + "\r\n"))
 
 	} else if (bytes.Index(c, []byte("LIST")) == 0 && *authed == true) {
 
@@ -1717,11 +1724,11 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 		}
 
 		// build the response
-		var s = "+OK " + strconv.FormatUint(uint64(len(msg_lengths)), 10) + " messages (" + total_size + " octets)"
+		var s = "+OK " + strconv.FormatUint(uint64(len(msg_lengths)), 10) + " messages (" + strconv.Itoa(total_size) + " octets)"
 
 		for m := range msg_lengths {
 			// message identifiers must be whole numbers
-			s += "\r\n" + msg_ids[m] + " " + msg_lengths[m]
+			s += "\r\n" + strconv.Itoa(msg_ids[m]) + " " + strconv.Itoa(msg_lengths[m])
 		}
 
 		s += "\r\n.\r\n"
@@ -1734,7 +1741,8 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 		s := bytes.Split(c, []byte(" "))
 		if (len(s) == 2) {
 			// send message
-			msg := pop3_retr_func(*auth_login, string(s[1]))
+			mid, _ := strconv.Atoi(string(s[1]))
+			msg := pop3_retr_func(*auth_login, mid)
 			conn.Write([]byte("+OK " + strconv.FormatUint(uint64(len(msg)), 10) + " octets\r\n" + msg + "\r\n.\r\n"))
 		} else {
 			conn.Write([]byte("-ERR invalid RETR command\r\n"))
@@ -1746,7 +1754,8 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 		s := bytes.Split(c, []byte(" "))
 		if (len(s) == 2) {
 			// delete message N
-			msg_deleted, delete_error := pop3_dele_func(*auth_login, string(s[1]))
+			mid, _ := strconv.Atoi(string(s[1]))
+			msg_deleted, delete_error := pop3_dele_func(*auth_login, mid)
 			if (msg_deleted == true) {
 				conn.Write([]byte("+OK deleted\r\n"))
 			} else {
@@ -2039,15 +2048,43 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		// remove command name
 		c = bytes.TrimLeft(c, "LIST ")
 
-		list_response := imap4_list_func(*auth_login, string(c))
-
-		if (len(list_response) == 0) {
-			// if empty, IMAP4 server will instruct the client to use SELECT with a "* LIST" response
-			conn.Write([]byte("* LIST () \".\" INBOX\r\n"))
+		// arguments are: flags, reference, mailbox_name
+		// flags is optional
+		var flags []string
+		var reference string
+		var mailbox_name string
+		if (bytes.Index(c, []byte("(")) > -1) {
+			// has flags argument
+			flags = append(flags, "")
 		} else {
-			for l := range(list_response) {
-				conn.Write([]byte(string(list_response[l]) + "\r\n"))
+			// does not have flags argument
+			var args = bytes.Split(c, []byte(" "))
+			if (len(args) != 2) {
+				conn.Write([]byte(string(seq) + " BAD invalid command\r\n"))
+				return
 			}
+
+			reference = string(args[0])
+			reference = strings.TrimLeft(reference, "\"")
+			reference = strings.TrimRight(reference, "\"")
+
+			mailbox_name = string(args[1])
+			mailbox_name = strings.TrimLeft(mailbox_name, "\"")
+			mailbox_name = strings.TrimRight(mailbox_name, "\"")
+		}
+
+		// InBoX is case-insensitive
+		// always return INBOX
+		if (strings.Index(strings.ToLower(mailbox_name), "inbox") == 0) {
+			// mailbox_name starts with case-insensitive InBoX
+			// return INBOX as uppercase
+			mailbox_name = "INBOX" + mailbox_name[5:len(mailbox_name)]
+		}
+
+		list_response := imap4_list_func(*auth_login, flags, reference, mailbox_name)
+
+		for l := range(list_response) {
+			conn.Write([]byte(string(list_response[l]) + "\r\n"))
 		}
 
 		conn.Write([]byte(string(seq) + " OK LIST completed\r\n"))
@@ -2067,6 +2104,14 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		// remove command name
 		c = bytes.TrimLeft(c, "SELECT ")
 
+		// InBoX is case-insensitive
+		// always return INBOX
+		if (bytes.Index(bytes.ToLower(c), []byte("inbox")) == 0) {
+			// mailbox name starts with case-insensitive InBoX
+			// return INBOX as uppercase
+			c = []byte("INBOX" + string(c[5:len(c)]))
+		}
+
 		// returns int, []string, int, string, string
 		// total messages
 		// slice of flags
@@ -2084,8 +2129,8 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		conn.Write([]byte("* " + strconv.Itoa(total_messages) + " EXISTS\r\n"))
 		conn.Write([]byte("* FLAGS (" + flags_string + ")\r\n"))
 		conn.Write([]byte("* " + strconv.Itoa(recent_messages) + " RECENT\r\n"))
-		conn.Write([]byte("* OK [UNSEEN " + first_unseen_message_id + "] Message " + first_unseen_message_id + " is the first unseen message\r\n"))
-		conn.Write([]byte("* OK [UIDVALIDITY " + uid_validity + "] UID value that is unique to the mailbox\r\n"))
+		conn.Write([]byte("* OK [UNSEEN " + strconv.Itoa(first_unseen_message_id) + "] Message " + strconv.Itoa(first_unseen_message_id) + " is the first unseen message\r\n"))
+		conn.Write([]byte("* OK [UIDVALIDITY " + strconv.Itoa(uid_validity) + "] UID value that is unique to the mailbox\r\n"))
 
 		conn.Write([]byte(string(seq) + " OK [READ-WRITE] SELECT completed\r\n"))
 
@@ -2180,7 +2225,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 			seq_set = append(seq_set, string(fetch_arguments[0]))
 		}
 
-		// returns []Imap4Message
+		// returns []Email
 		messages := imap4_fetch_func(*auth_login, seq_set, item_names)
 
 		// parse messages and send the data per the IMAP4 protocol
@@ -2219,8 +2264,8 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		*/
 
 		/*
-		type Imap4Message struct {
-			Uid				string
+		type Email struct {
+			Uid				int
 			InternalDate			time.Time
 			Flags				[]string
 			Body				[]byte
@@ -2234,10 +2279,10 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 			m := messages[msg]
 
-			fmt.Println("sending ", m.Uid)
+			fmt.Println("sending ", strconv.Itoa(m.Uid))
 
-			conn.Write([]byte("* " + m.Uid + " FETCH ("))
-			fmt.Print(string([]byte("* " + m.Uid + " FETCH (")))
+			conn.Write([]byte("* " + strconv.Itoa(m.Uid) + " FETCH ("))
+			fmt.Print(string([]byte("* " + strconv.Itoa(m.Uid) + " FETCH (")))
 
 			// convert FULL, ALL and FAST macros
 			for i := range(item_names) {
@@ -2285,11 +2330,9 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 				} else if (item_names[i] == "UID") {
 
-					continue
-
 					// send the unique identifier of the message as specified by RFC 3501
-					conn.Write([]byte("UID " + m.Uid))
-					fmt.Print(string([]byte("UID " + m.Uid)))
+					conn.Write([]byte("UID " + strconv.Itoa(m.Uid)))
+					fmt.Print(string([]byte("UID " + strconv.Itoa(m.Uid))))
 
 				} else if (item_names[i] == "FLAGS") {
 

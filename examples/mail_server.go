@@ -4,17 +4,128 @@ import (
 	"io/ioutil"
 	"fmt"
 	"encoding/json"
+	"time"
+	"net/mail"
 	"crypto/md5"
 	"encoding/hex"
+	"strings"
 	"os"
+	"sync"
+	"bytes"
 	"github.com/andrewhodel/go-ip-ac"
 	"github.com/andrewhodel/go-mail"
 )
 
+type Mailbox struct {
+	Name			string
+	LastMessageId		int
+	TotalSize		int
+	// must always be the same for each mailbox or all clients end all pending operations and resync
+	UidValidity		int
+}
+
 var config gomail.Config
 var ip_ac ipac.Ipac
 
+var users map[string] string
+
+var mailboxes map[string] []Mailbox
+var mailboxes_mutex = &sync.Mutex{}
+
+var message_store map[string] []gomail.Email
+var message_store_mutex = &sync.Mutex{}
+
 func main() {
+
+	// init users
+	users = make(map[string] string)
+	users["andrew@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	users["no-reply@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	// initialize the message store
+	message_store = make(map[string] []gomail.Email)
+
+	var one gomail.Email
+	var oneh map[string]string
+	oneh = make(map[string] string)
+	oneh["subject"] = "message one"
+	oneh["date"] = "Thu, 27 Jun 2023 08:29:16 -0700"
+	one.Headers = oneh
+	one.Uid = 1
+	one.InternalDate = time.Now()
+	one.Rfc822Size = 1000
+	one.Mailbox = "INBOX"
+	message_store["andrew@xyzbots.com"] = append(message_store["andrew@xyzbots.com"], one)
+
+	var two gomail.Email
+	var twoh map[string]string
+	twoh = make(map[string] string)
+	twoh["subject"] = "message two"
+	twoh["date"] = "Thu, 27 Jun 2023 08:29:16 -0700"
+	two.Headers = twoh
+	two.Uid = 2
+	two.InternalDate = time.Now()
+	two.Rfc822Size = 1000
+	two.Mailbox = "INBOX"
+	message_store["andrew@xyzbots.com"] = append(message_store["andrew@xyzbots.com"], two)
+
+	// initialize the mailboxes
+	mailboxes = make(map[string] []Mailbox)
+	for a := range(users) {
+		emails := message_store[a]
+
+		// create the mailboxes of each account
+		for mid := range(emails) {
+
+			// test if the mailbox exists
+			var mailbox_found = false
+			for m := range(mailboxes[a]) {
+				if (mailboxes[a][m].Name == emails[mid].Mailbox) {
+					mailbox_found = true
+					break
+				}
+			}
+
+			if (mailbox_found == false) {
+				// create the mailbox
+				fmt.Println("creating mailbox", emails[mid].Mailbox, a)
+				mailboxes[a] = append(mailboxes[a], Mailbox{Name: emails[mid].Mailbox, UidValidity: 1})
+			}
+
+		}
+
+		// set the last message id of each email for each mailbox for each account from the message store
+		for mb := range(mailboxes[a]) {
+
+			var last_message_id = 0
+			for mid := range(emails) {
+				email := emails[mid]
+
+				if (email.Uid > last_message_id && email.Mailbox == mailboxes[a][mb].Name) {
+					// set the last_message_id
+					last_message_id = email.Uid
+				}
+
+				if (email.Mailbox == mailboxes[a][mb].Name) {
+					// increase the total size
+					mailboxes[a][mb].TotalSize += email.Rfc822Size
+				}
+
+			}
+			// set the highest message id for this mailbox of this account
+			mailboxes[a][mb].LastMessageId = last_message_id
+
+		}
+
+	}
+
+	// dkim private key
+	pk, pk_err := os.ReadFile("../xyzbots-dkim/private.key")
+
+	if (pk_err != nil) {
+		fmt.Println(pk_err)
+		os.Exit(1)
+	}
 
 	ipac.Init(&ip_ac)
 
@@ -36,7 +147,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) bool {
+	go gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) bool {
 
 		// from_address		MAIL FROM value
 		// ip			ip address of the sending client
@@ -50,8 +161,27 @@ func main() {
 		fmt.Println("AUTH password", auth_password)
 
 		// get the email local-part and domain
-		//address_parts := strings.Split(from_address, "@")
+		address_parts := strings.Split(from_address, "@")
 		//fmt.Println(address_parts)
+
+		if (len(address_parts) != 2) {
+			// from_address must be in the form local-part@domain.tld
+			return false
+		}
+
+		if (address_parts[1] == config.Fqdn) {
+			// this email is of this sending domain
+
+			// authenticate the session with esmtp
+			if (from_address == "") {
+			} else if (users[from_address] == auth_password) {
+				// authenticated
+				*esmtp_authed = true
+			}
+
+		} else {
+			// this email is of an external sending domain
+		}
 
 		// return true if allowed
 		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
@@ -66,8 +196,32 @@ func main() {
 		// RCPT TO
 		fmt.Println("mail to", to_address)
 
+		// get the email local-part and domain
+		address_parts := strings.Split(to_address, "@")
+
+		if (len(address_parts) != 2) {
+			// to_address must be in the form local-part@domain.tld
+			return false
+		}
+
 		// return true if allowed
 		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
+		if (address_parts[1] != config.Fqdn) {
+			// this email is to be sent to another server
+
+			if (*esmtp_authed == false) {
+				// only send emails to other servers if the session is esmtp authenticated
+				return false
+			}
+		} else {
+			// make sure the local account exists
+			if (users[address_parts[0]] == "") {
+				// no local account exists
+				return false
+			}
+		}
+
+		// email is to this domain or from an esmtp authenticated session
 		return true
 
 	}, func(headers map[string]string, ip string, esmtp_authed *bool) bool {
@@ -78,12 +232,6 @@ func main() {
 
 		// headers
 		// verify the message-id with stored messages to the same address to prevent duplicates
-
-		// you can use ParseTags() to parse strings with key=value; parts into a map[string]string
-		fmt.Println("headers")
-		for h := range headers {
-			fmt.Println(h, headers[h])
-		}
 
 		// return true if allowed
 		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
@@ -100,27 +248,114 @@ func main() {
 		// esmtp_authed		ESTMP authed status
 
 		fmt.Println("full email received, length", len(*email_data))
+		//fmt.Println(string((*email_data)))
 		fmt.Println("dkim valid:", *dkim_valid)
 		fmt.Println("ip of smtp client", *ip)
 
-		// email is in parts
-		// a part can be an attachment or a body with a different content-type
-		// there is a parts_headers item for each part
+		// get list of each address to send to
+		// send to external servers
+		// send to local domain inboxes
+		var send_addresses []mail.Address
 
-		fmt.Println("parts:", len(*parts))
-		for p := range *parts {
-			fmt.Println("###### part:", p)
-			fmt.Println("part headers:", (*parts_headers)[p])
-			if (len((*parts)[p]) > 10000) {
-				fmt.Println(string((*parts)[p][0:10000]))
-			} else {
-				fmt.Println(string((*parts)[p]))
+		tf, tf_err := mail.ParseAddress((*headers)["to"])
+		if tf_err == nil {
+			send_addresses = append(send_addresses, *tf)
+		}
+
+		// remove the BCC headers
+		var bcc_header = (*headers)["bcc"]
+		delete((*headers), "bcc")
+		var bccs = strings.Split(bcc_header, ",")
+
+		for a := range(bccs) {
+
+			// add each bcc address
+			tf, tf_err := mail.ParseAddress(bccs[a])
+			if tf_err == nil {
+				send_addresses = append(send_addresses, *tf)
 			}
+
+		}
+
+		// get the cc addresses
+		var ccs = strings.Split((*headers)["cc"], ",")
+
+		for a := range(ccs) {
+
+			// add each cc address
+			tf, tf_err := mail.ParseAddress(bccs[a])
+			if tf_err == nil {
+				send_addresses = append(send_addresses, *tf)
+			}
+
+		}
+
+		// get the raw body as bytes
+		var h_split_pos = bytes.Index((*email_data), []byte("\r\n\r\n"))
+		var end_split_pos = bytes.Index((*email_data), []byte("\r\n.\r\n"))
+
+		if (h_split_pos == -1) {
+			h_split_pos = 0
+		} else {
+			h_split_pos += 4
+		}
+		if (end_split_pos == -1) {
+			end_split_pos = len((*email_data)) - 1
+		}
+
+		pf, pf_err := mail.ParseAddress((*headers)["from"])
+		if pf_err == nil {
+
+			for a := range(send_addresses) {
+
+				fmt.Println("sending to ", send_addresses[a])
+
+				// get the email local-part and domain
+				address_parts := strings.Split(tf.Address, "@")
+				if (address_parts[1] == config.Fqdn) {
+					// send to local domain
+					fmt.Println("send to local domain")
+				} else {
+
+					if (*esmtp_authed == false) {
+						// never send to external domains unless esmtp authed
+						fmt.Println("not sending to external domain, not esmtp authed")
+						continue
+					}
+
+					// send via SMTP
+					var om gomail.OutboundMail
+					om.DkimPrivateKey = pk
+					om.DkimDomain = "fgkhdgsfgdds._domainkey.xyzbots.com"
+					om.From = *pf
+					om.Subj = (*headers)["subject"]
+					om.Body = (*email_data)[h_split_pos:end_split_pos]
+
+					// add headers
+					om.Headers = (*headers)
+
+					// add to address
+					om.To = []mail.Address{send_addresses[a]}
+
+					err, _ := gomail.SendMail(om)
+
+					if (err != nil) {
+						fmt.Println("gomail.SendMail() error:", err)
+					} else {
+						fmt.Println("email received by server")
+						//fmt.Println(email)
+						//fmt.Println(string(email))
+					}
+
+				}
+
+			}
+
 		}
 
 	})
 
-	gomail.Pop3Server(config, ip_ac, func(ip string, auth_login string, auth_password string, shared_secret string) bool {
+	go gomail.Pop3Server(config, ip_ac, func(ip string, auth_login string, auth_password string, shared_secret string) bool {
 
 		// ip			ip address
 		// auth_login		login
@@ -141,32 +376,64 @@ func main() {
 
 			fmt.Println("valid_sum", valid_sum)
 
-			if (valid_sum == auth_password) {
-				return true
-			} else {
+			if (valid_sum != auth_password) {
+				// the shared secret is invalid
 				return false
 			}
 
 		}
 
-		// there is no shared secret, validate auth_login and auth_password
+		// continue authentication
+
+		// get the email local-part and domain
+		address_parts := strings.Split(auth_login, "@")
+		//fmt.Println(address_parts)
+
+		if (len(address_parts) != 2) {
+			// from_address must be in the form local-part@domain.tld
+			return false
+		}
+
+		if (address_parts[1] == config.Fqdn) {
+			// this user is from this domain
+
+			// authenticate the session
+			if (auth_login == "") {
+			} else if (users[auth_login] == auth_password) {
+				// authenticated
+				fmt.Println("authed")
+				return true
+			}
+
+		}
 
 		// return true if allowed
 		// return false to disconnect the socket and add an invalid auth to ip_ac
-		return true
+		return false
 
-	}, func(auth_login string) (string, string) {
+	}, func(auth_login string) (int, int) {
 
 		// STAT
 		// auth_login		login
 
 		fmt.Println("POP3 STAT", auth_login)
 
-		// return the total message count and size of all messages in bytes
-		// strings allow larger than uint64 max values
-		return "1", "5"
+		mailboxes_mutex.Lock()
+		var total_messages = 0
+		var total_size = 0
+		// add all the mailboxes together
+		// POP3 treats the mailbox as a single store, and has no concept of folders
+		for mb := range(mailboxes[auth_login]) {
+			var mailbox = mailboxes[auth_login][mb]
+			total_messages += mailbox.LastMessageId
+			total_size += mailbox.TotalSize
+		}
+		mailboxes_mutex.Unlock()
 
-	}, func(auth_login string) (string, []string, []string) {
+		// return the total message count and size of all messages in bytes
+		return total_messages, total_size
+
+	}, func(auth_login string) (int, []int, []int) {
 
 		// LIST
 		// auth_login		login
@@ -176,11 +443,24 @@ func main() {
 		// each message needs an identifier that is a whole number, beginning with 1
 		// the message identifiers are used to identify messages in the RETR and DELE commands by POP3 clients
 
-		// return total size in bytes of all messages, the message identifiers and the size of each message in bytes
-		// strings allow larger than uint64 max values
-		return "5", []string{"1"}, []string{"5"}
+		// return emails from all mailboxes
+		// POP3 treats the mailbox as a single store, and has no concept of folders
+		var total_size = 0
+		var mids []int
+		var m_sizes []int
+		message_store_mutex.Lock()
+		for m := range(message_store[auth_login]) {
+			email := message_store[auth_login][m]
+			total_size += email.Rfc822Size
+			mids = append(mids, email.Uid)
+			m_sizes = append(m_sizes, email.Rfc822Size)
+		}
+		message_store_mutex.Unlock()
 
-	}, func(auth_login string, msg_id string) string {
+		// return total size in bytes of all messages, the message identifiers and the size of each message in bytes
+		return total_size, mids, m_sizes
+
+	}, func(auth_login string, msg_id int) string {
 
 		// RETR retrieve message by id
 		// auth_login		login
@@ -189,9 +469,23 @@ func main() {
 		fmt.Println("POP3 RETR", auth_login, "message identifier", msg_id)
 
 		// get the message and return it as a string
-		return "12345"
+		var h = ""
+		message_store_mutex.Lock()
+		for m := range(message_store[auth_login]) {
+			email := message_store[auth_login][m]
+			if (email.Uid == msg_id) {
+				for k, v := range(email.Headers) {
+					h += k + ": " + v + "\r\n"
+				}
+				h += "\r\n" + string(email.Body)
+				break
+			}
+		}
+		message_store_mutex.Unlock()
 
-	}, func(auth_login string, msg_id string) (bool, string) {
+		return h
+
+	}, func(auth_login string, msg_id int) (bool, string) {
 
 		// DELE
 		// auth_login		login
@@ -200,11 +494,27 @@ func main() {
 		fmt.Println("POP3 DELE", auth_login, "message identifier", msg_id)
 
 		// delete the message and return the message deleted status and error message if the message was not deleted
-		return true, ""
+		var deleted = false
+		message_store_mutex.Lock()
+		for m := range(message_store[auth_login]) {
+			if (message_store[auth_login][m].Uid == msg_id) {
+				// delete the message
+				message_store[auth_login] = nil
+				deleted = true
+				break
+			}
+		}
+		message_store_mutex.Unlock()
+
+		if (deleted == true) {
+			return true, ""
+		} else {
+			return false, "not found"
+		}
 
 	})
 
-	gomail.Imap4Server(config, ip_ac, func(ip string, auth_login string, auth_password string) bool {
+	go gomail.Imap4Server(config, ip_ac, func(ip string, auth_login string, auth_password string) bool {
 
 		// ip			ip address
 		// auth_login		login
@@ -237,13 +547,17 @@ func main() {
 		// return false to disconnect the socket and add an invalid auth to ip_ac
 		return false
 
-	}, func(auth_login string, mailbox_name string) []string {
+	}, func(auth_login string, flags []string, reference string, mailbox_name string) []string {
 
 		// LIST
 		// auth_login		login
-		// mailbox_name		mailbox name with possible wildcards
+		// flags		[]string of flags
+		// reference		reference is prepended to the mailbox
+		// mailbox_name		mailbox name
 
-		fmt.Println("IMAP4 LIST", auth_login, "mailbox_name", mailbox_name)
+		// mailbox_name InBoX is case-insensitive and always returned as INBOX
+
+		fmt.Println("IMAP4 LIST", auth_login, "flags", flags, "reference", reference, "mailbox", mailbox_name)
 
 		/*
 		C: A101 LIST "" ""
@@ -262,16 +576,33 @@ func main() {
 		*/
 
 		// return slice of strings to respond with
-		// if empty, IMAP4 server will instruct the client to use SELECT with a "* LIST" response
-		return []string{}
+		if (mailbox_name == "*") {
+			// return all mailboxes
 
-	}, func(auth_login string, mailbox_name string) (int, []string, int, string, string) {
+			mailboxes_mutex.Lock()
+			var mbs []string
+			// find the mailbox
+			for mb := range(mailboxes[auth_login]) {
+				var mailbox = mailboxes[auth_login][mb]
+				mbs = append(mbs, "* LIST () \"\" " + mailbox.Name)
+			}
+			mailboxes_mutex.Unlock()
+			return mbs
+
+		} else {
+			// return that mailbox
+			return []string{"* LIST () \"\" " + mailbox_name}
+		}
+
+	}, func(auth_login string, mailbox_name string) (int, []string, int, int, int) {
 
 		// SELECT
 		// auth_login		login
 		// mailbox_name		name of mailbox
 
-		fmt.Println("IMAP4 SELECT", auth_login)
+		// mailbox_name InBoX is case-insensitive and always returned as INBOX
+
+		fmt.Println("IMAP4 SELECT", auth_login, "mailbox", mailbox_name)
 
 		/*
 		C:   a002 select inbox
@@ -283,15 +614,30 @@ func main() {
 		S:   a002 OK [READ-WRITE] SELECT completed
 		*/
 
+		var total_messages = 0
+		var mailbox_uid_validity = 0
+		// find the mailbox
+		mailboxes_mutex.Lock()
+		for mb := range(mailboxes[auth_login]) {
+			var mailbox = mailboxes[auth_login][mb]
+			if (mailbox.Name == mailbox_name) {
+				total_messages = mailbox.LastMessageId
+				mailbox_uid_validity = mailbox.UidValidity
+			}
+		}
+		mailboxes_mutex.Unlock()
+
+		fmt.Println("IMAP4 SELECT returning", total_messages, "total messages in", mailbox_name)
+
 		// return
 		// total messages
 		// slice of flags
 		// count of unseen messages
 		// first unseen message id
 		// uid validity string (this is forever unique to the mailbox and must increment if the mailbox is deleted)
-		return 2, []string{}, 2, "1", "1"
+		return total_messages, []string{}, 0, 0, mailbox_uid_validity
 
-	}, func(auth_login string, sequence_set []string, item_names []string) ([]gomail.Imap4Message) {
+	}, func(auth_login string, sequence_set []string, item_names []string) ([]gomail.Email) {
 
 		// FETCH
 		// auth_login		login
@@ -335,12 +681,12 @@ func main() {
 		S:   a004 OK FETCH completed
 		*/
 
-		// return a slice of Imap4Message
+		// return []Email
 		// the Body field only needs to be set if requested
 
 		/*
-		type Imap4Message struct {
-			Uid				string
+		type Email struct {
+			Uid				int
 			InternalDate			time.Time
 			Flags				[]string
 			Body				[]byte
@@ -349,27 +695,21 @@ func main() {
 		}
 		*/
 
-		var one gomail.Imap4Message
-		var oneh map[string]string
-		oneh = make(map[string] string)
-		oneh["subject"] = "message one"
-		oneh["date"] = "Thu, 27 Jun 2023 08:29:16 -0700"
-		one.Headers = oneh
-		one.Uid = "1"
-		one.InternalDate = time.Now()
-		one.Rfc822Size = 1000
+		// return emails from selected mailbox
+		var selected_mailbox = "INBOX"
+		var emails []gomail.Email
+		message_store_mutex.Lock()
+		for m := range(message_store[auth_login]) {
+			if (message_store[auth_login][m].Mailbox == selected_mailbox) {
+				email := message_store[auth_login][m]
+				// remove body if needed
+				email.Body = nil
+				emails = append(emails, email)
+			}
+		}
+		message_store_mutex.Unlock()
 
-		var two gomail.Imap4Message
-		var twoh map[string]string
-		twoh = make(map[string] string)
-		twoh["subject"] = "message two"
-		twoh["date"] = "Thu, 27 Jun 2023 08:29:16 -0700"
-		two.Headers = twoh
-		two.Uid = "2"
-		two.InternalDate = time.Now()
-		two.Rfc822Size = 1000
-
-		return []gomail.Imap4Message{one, two}
+		return emails
 
 	}, func(auth_login string, msg_id string, sequence_set string, item_name string, item_value string) bool {
 
