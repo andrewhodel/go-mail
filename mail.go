@@ -1596,14 +1596,9 @@ func pop3Cw(conn net.Conn, b []byte) {
 func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string, authed *bool, auth_login *string, auth_password *string, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
 	// each command can be up to 512 bytes
-	// remove null characters from the end of the command
-	for n := len(c)-1; n >= 0; n-- { 
-		if (c[n] == 0) {
-			c = c[0:n]
-		}
-	}
-	// remove \r\n from the end of the command
-	c = bytes.TrimRight(c, "\r\n")
+	// remove all characters at \r\n
+	var end_pos = bytes.Index(c, []byte("\r\n"))
+	c = c[0:end_pos]
 
 	//fmt.Printf("POP3 command: %s\n", c)
 
@@ -1736,6 +1731,8 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 		conn.Write([]byte(s))
 
 	} else if (bytes.Index(c, []byte("RETR")) == 0 && *authed == true) {
+
+		//fmt.Println("RETR", string(c))
 
 		// RETR ID
 		s := bytes.Split(c, []byte(" "))
