@@ -1971,8 +1971,13 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 	c = c[seq_pos+1:]
 
 	// remove seq UID from command
-	// thunderbird sends this incorrectly per the RFC
-	c = bytes.TrimLeft(c, "UID ")
+	// thunderbird sends this incorrectly per RFC 3501
+	// and RFC 9051 allows it to work with COPY, MOVE, FETCH, or STORE
+	var is_uid_command = false
+	if (bytes.Index(c, []byte("UID ")) == 0) {
+		is_uid_command = true
+		c = bytes.TrimLeft(c, "UID ")
+	}
 
 	// some IMAP4 clients send commands in uppercase characters
 	// and the RFC requires casing of characters but does not specify casing of command names
@@ -2028,7 +2033,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 	} else if (bytes.Index(upper_c, []byte("CAPABILITY")) == 0) {
 
 		// return IMAP capabilities of the server
-		conn.Write([]byte("* CAPABILITY IMAP4rev1 CHILDREN UNSELECT BINARY ID\r\n"))
+		conn.Write([]byte("* CAPABILITY IMAP4rev2 CHILDREN UNSELECT BINARY ID\r\n"))
 		conn.Write([]byte(string(seq) + " OK CAPABILITY completed\r\n"))
 
 	} else if (bytes.Index(upper_c, []byte("ID")) == 0) {
@@ -2151,7 +2156,6 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		conn.Write([]byte("* " + strconv.Itoa(total_messages) + " EXISTS\r\n"))
 		conn.Write([]byte("* " + strconv.Itoa(recent_messages) + " RECENT\r\n"))
 		conn.Write([]byte("* OK [UNSEEN " + strconv.Itoa(first_unseen_message_id) + "]\r\n"))
-		// permanant flags are defined in RFC 3501
 		conn.Write([]byte("* OK [PERMANENTFLAGS \\Answered \\Seen \\Draft \\Flagged \\Deleted \\Recent] Ok\r\n"))
 		conn.Write([]byte("* OK [UIDNEXT " + strconv.Itoa(total_messages + 1) + "] Ok\r\n"))
 		conn.Write([]byte("* OK [UIDVALIDITY " + strconv.Itoa(uid_validity) + "] Ok\r\n"))
@@ -2346,7 +2350,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 						fmt.Print(string([]byte(" ")))
 					}
 
-					// send the date as specified by RFC 3501
+					// send the date as specified by RFC 9051
 					conn.Write([]byte("INTERNALDATE \"17-Jul-2023 02:44:25 -0700\""))
 					fmt.Print(string([]byte("INTERNALDATE \"17-Jul-2023 02:44:25 -0700\"")))
 					//conn.Write([]byte("INTERNALDATE \"" + m.InternalDate.String() + "\""))
@@ -2359,7 +2363,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 						fmt.Print(string([]byte(" ")))
 					}
 
-					// send the unique identifier of the message as specified by RFC 3501
+					// send the unique identifier of the message as specified by RFC 9051
 					conn.Write([]byte("UID " + strconv.Itoa(m.Uid)))
 					fmt.Print(string([]byte("UID " + strconv.Itoa(m.Uid))))
 
@@ -2480,8 +2484,13 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 		}
 
-		conn.Write([]byte(string(seq) + " OK FETCH completed\r\n"))
-		fmt.Print(string([]byte(string(seq) + " OK FETCH completed\r\n")))
+		if (is_uid_command == true) {
+			conn.Write([]byte(string(seq) + " OK UID FETCH completed\r\n"))
+			fmt.Print(string([]byte(string(seq) + " OK UID FETCH completed\r\n")))
+		} else {
+			conn.Write([]byte(string(seq) + " OK FETCH completed\r\n"))
+			fmt.Print(string([]byte(string(seq) + " OK FETCH completed\r\n")))
+		}
 
 	} else if (bytes.Index(upper_c, []byte("NOOP")) == 0) {
 
@@ -2513,6 +2522,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 	} else if (bytes.Index(upper_c, []byte("STORE")) == 0) {
 
 		// not implemented
+		// add RFC 9051 UID prefix when STORE is implemented using is_uid_command as used in FETCH
 		//conn.Write([]byte(string(seq) + " OK STORE completed\r\n"))
 		conn.Write([]byte(string(seq) + " BAD\r\n"))
 
@@ -2522,7 +2532,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 	} else if (bytes.Index(upper_c, []byte("LOGOUT")) == 0) {
 
-		conn.Write([]byte("* BYE IMAP4rev1 server terminating connection\r\n"))
+		conn.Write([]byte("* BYE IMAP4rev2 server terminating connection\r\n"))
 		conn.Write([]byte(string(seq) + " OK LOGOUT completed\r\n"))
 		conn.Close()
 
@@ -2542,7 +2552,7 @@ func imap4HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config,
 	fmt.Println("IMAP4 client connected")
 
 	// send the first connection message
-	imap4Cw(conn, []byte("* OK IMAP4rev1 Service Ready\r\n"))
+	imap4Cw(conn, []byte("* OK IMAP4rev2 Service Ready\r\n"))
 
 	sent_cmds := 0
 	sent_bytes := 0
@@ -2551,9 +2561,12 @@ func imap4HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config,
 	auth_login := ""
 	auth_password := ""
 
-	// IMAP 4 has a maximum command length that is not defined in the RFC
-	// 1MB
-	buf := make([]byte, 1000 * 1000 * 1)
+	/*
+	RFC 9051
+	Unless otherwise specified in an IMAP extension, non-synchronizing literals MUST NOT be larger than 4096 octets. Any literal larger than 4096 bytes MUST be sent as a synchronizing literal.
+	*/
+	// max command length
+	buf := make([]byte, 4096)
 
 	for {
 
