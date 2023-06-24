@@ -2566,7 +2566,8 @@ func imap4HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config,
 	Unless otherwise specified in an IMAP extension, non-synchronizing literals MUST NOT be larger than 4096 octets. Any literal larger than 4096 bytes MUST be sent as a synchronizing literal.
 	*/
 	// max command length
-	buf := make([]byte, 4096)
+	max_command_length := 4096
+	buf := make([]byte, 0)
 
 	for {
 
@@ -2592,6 +2593,12 @@ func imap4HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config,
 			conn.Write([]byte("* NO unauthenticated send limit exceeded\r\n"))
 			conn.Close()
 			break
+		}
+
+		if (len(b) + len(buf) > max_command_length) {
+			conn.Write([]byte("* NO exceeds max command length in RFC 9051\r\n"))
+			buf = nil
+			continue
 		}
 
 		// add b to buf
