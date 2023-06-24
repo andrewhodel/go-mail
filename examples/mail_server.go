@@ -828,6 +828,9 @@ func resend_loop() {
 			fmt.Println("email received by server", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
 			//fmt.Println(email)
 			//fmt.Println(string(email))
+			resend_queue_mutex.Lock()
+			resend_queue = resend_queue[0:m-1]
+			resend_queue_mutex.Unlock()
 		}
 
 	}
