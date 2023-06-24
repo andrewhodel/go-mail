@@ -36,12 +36,15 @@ var mailboxes_mutex = &sync.Mutex{}
 var message_store map[string] []gomail.Email
 var message_store_mutex = &sync.Mutex{}
 
+var resend_queue []gomail.OutboundMail
+var resend_queue_mutex = &sync.Mutex{}
+
 func main() {
 
 	// init users
 	users = make(map[string] string)
-	users["andrew@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	users["no-reply@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	users["andrew@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	users["no-reply@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 	// initialize the message store
 	message_store = make(map[string] []gomail.Email)
@@ -51,7 +54,11 @@ func main() {
 	oneh = make(map[string] string)
 	oneh["subject"] = "message one"
 	oneh["date"] = "Thu, 27 Jun 2023 08:29:16 -0700"
+	oneh["to"] = "andrew@xyzbots.com"
+	oneh["from"] = "andrewhodel@gmail.com"
+	oneh["message-id"] = "20230623044816.85E937380062@gmail.com"
 	one.Headers = oneh
+	//one.Flags = []string{"\\Recent"}
 	one.Uid = 1
 	one.InternalDate = time.Now()
 	one.Rfc822Size = 1000
@@ -63,7 +70,11 @@ func main() {
 	twoh = make(map[string] string)
 	twoh["subject"] = "message two"
 	twoh["date"] = "Thu, 27 Jun 2023 08:29:16 -0700"
+	twoh["to"] = "andrew@xyzbots.com"
+	twoh["from"] = "andrewhodel@gmail.com"
+	twoh["message-id"] = "20230623044816.85E737380011@gmail.com"
 	two.Headers = twoh
+	//two.Flags = []string{"\\Recent"}
 	two.Uid = 2
 	two.InternalDate = time.Now()
 	two.Rfc822Size = 1000
@@ -147,6 +158,8 @@ func main() {
 		fmt.Printf("Error decoding ./config.json: %s\n", config_json_err)
 		os.Exit(1)
 	}
+
+	go resend_loop()
 
 	go gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) bool {
 
@@ -342,8 +355,15 @@ func main() {
 
 					if (err != nil) {
 						fmt.Println("gomail.SendMail() error:", err)
+
+						// add to resend_queue
+						om.FirstSendFailure = time.Now()
+						resend_queue_mutex.Lock()
+						resend_queue = append(resend_queue, om)
+						resend_queue_mutex.Unlock()
+
 					} else {
-						fmt.Println("email received by server")
+						fmt.Println("email received by server", om.Subj, om.To, om.From)
 						//fmt.Println(email)
 						//fmt.Println(string(email))
 					}
@@ -779,5 +799,39 @@ func main() {
 
 	// keep main thread open
 	select {}
+
+}
+
+func resend_loop() {
+
+	// attempt SMTP resends every hour
+	time.Sleep(time.Minute * 60)
+
+	for m := len(resend_queue) - 1; m >= 0; m-- {
+
+		now := time.Now()
+
+		if (now.Sub(resend_queue[m].FirstSendFailure).Hours() > 144) {
+			// delete after 6 days
+			fmt.Println("email resend failed after 144 hours", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
+			resend_queue_mutex.Lock()
+			resend_queue = resend_queue[0:m-1]
+			resend_queue_mutex.Unlock()
+			continue
+		}
+
+		err, _ := gomail.SendMail(resend_queue[m])
+
+		if (err != nil) {
+			fmt.Println("gomail.SendMail() error:", err)
+		} else {
+			fmt.Println("email received by server", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
+			//fmt.Println(email)
+			//fmt.Println(string(email))
+		}
+
+	}
+
+	go resend_loop()
 
 }

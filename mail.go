@@ -96,6 +96,7 @@ type OutboundMail struct {
 	DkimSigningAlgo			string
 	DkimExpireSeconds		int
 	Headers				map[string]string
+	FirstSendFailure		time.Time
 }
 
 type Esmtp struct {
