@@ -1970,9 +1970,17 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 	// remove the sequence number from the command
 	c = c[seq_pos+1:]
 
+	// remove seq UID from command
+	// thunderbird sends this incorrectly per the RFC
+	c = bytes.TrimLeft(c, "UID ")
+
+	// some IMAP4 clients send commands in uppercase characters
+	// and the RFC requires casing of characters but does not specify casing of command names
+	upper_c := bytes.ToUpper(c)
+
 	//fmt.Printf("IMAP4 command (%s): %s\n", seq, c)
 
-	if (bytes.Index(c, []byte("LOGIN")) == 0) {
+	if (bytes.Index(upper_c, []byte("LOGIN")) == 0) {
 
 		// USER name
 		s := bytes.Split(c, []byte(" "))
@@ -2017,19 +2025,19 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 		}
 
-	} else if (bytes.Index(c, []byte("CAPABILITY")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("CAPABILITY")) == 0) {
 
 		// return IMAP capabilities of the server
-		conn.Write([]byte("* CAPABILITY IMAP4rev1 CHILDREN UNSELECT BINARY ENABLE ID\r\n"))
+		conn.Write([]byte("* CAPABILITY IMAP4rev1 CHILDREN UNSELECT BINARY ID\r\n"))
 		conn.Write([]byte(string(seq) + " OK CAPABILITY completed\r\n"))
 
-	} else if (bytes.Index(c, []byte("ID")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("ID")) == 0) {
 
 		// return IMAP server info
 		conn.Write([]byte("* ID (\"name\" \"Go-Mail\" \"vendor\" \"XYZBots\" \"support-url\" \"https://xyzbots.com\")\r\n"))
 		conn.Write([]byte(string(seq) + " OK CAPABILITY completed\r\n"))
 
-	} else if (bytes.Index(c, []byte("LIST")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("LIST")) == 0) {
 
 		// a slice with each response line is returned
 		// the * LIST () "" "" lines
@@ -2051,7 +2059,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		*/
 
 		// remove command name
-		c = bytes.TrimLeft(c, "LIST ")
+		c = c[5:]
 
 		// arguments are: flags, reference, mailbox_name
 		// flags is optional
@@ -2094,12 +2102,11 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 		conn.Write([]byte(string(seq) + " OK LIST completed\r\n"))
 
-	} else if (bytes.Index(c, []byte("UNSELECT")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("UNSELECT")) == 0) {
 
-		fmt.Println("IMAP4 UNSELECT")
 		conn.Write([]byte(string(seq) + " OK UNSELECT completed\r\n"))
 
-	} else if (bytes.Index(c, []byte("SELECT")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("SELECT")) == 0) {
 
 		/*
 		C:   a002 select inbox
@@ -2112,7 +2119,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		*/
 
 		// remove command name
-		c = bytes.TrimLeft(c, "SELECT ")
+		c = c[7:]
 
 		// remove start and end " if they exist
 		c = bytes.TrimLeft(c, "\"")
@@ -2151,7 +2158,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 		conn.Write([]byte(string(seq) + " OK [READ-WRITE] SELECT completed\r\n"))
 
-	} else if (bytes.Index(c, []byte("SEARCH")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("SEARCH")) == 0) {
 
 		mids := imap4_search_func(*auth_login, string(c))
 
@@ -2160,14 +2167,14 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		conn.Write([]byte("* SEARCH " + mids + "\r\n"))
 		conn.Write([]byte(string(seq) + " OK SEARCH completed\r\n"))
 
-	} else if (bytes.Index(c, []byte("FETCH")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("FETCH")) == 0) {
 
 		/*
 		FETCH 1:2 (INTERNALDATE UID RFC822.SIZE FLAGS BODY.PEEK[HEADER.FIELDS (date subject from to cc message-id in-reply-to references content-type x-priority x-uniform-type-identifier x-universally-unique-identifier list-id list-unsubscribe bimi-indicator bimi-location x-bimi-indicator-hash authentication-results dkim-signature)])
 		*/
 
 		// remove command name
-		c = bytes.TrimLeft(c, "FETCH ")
+		c = c[6:]
 
 		fetch_arguments := bytes.SplitN(c, []byte(" ("), 2)
 		var item_names []string
@@ -2476,7 +2483,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		conn.Write([]byte(string(seq) + " OK FETCH completed\r\n"))
 		fmt.Print(string([]byte(string(seq) + " OK FETCH completed\r\n")))
 
-	} else if (bytes.Index(c, []byte("NOOP")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("NOOP")) == 0) {
 
 		/*
 		Since any command can return a status update as untagged data, the
@@ -2497,25 +2504,23 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		S: a047 OK NOOP completed
 		*/
 
-		fmt.Println("IMAP4 NOOP")
 		conn.Write([]byte(string(seq) + " OK NOOP completed\r\n"))
 
-	} else if (bytes.Index(c, []byte("LSUB")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("LSUB")) == 0) {
 
-		fmt.Println("IMAP4 LSUB", string(c))
-		conn.Write([]byte(string(seq) + " OK LSUB completed\r\n"))
+		conn.Write([]byte(string(seq) + " BAD LSUB not implemented\r\n"))
 
-	} else if (bytes.Index(c, []byte("STORE")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("STORE")) == 0) {
 
 		// not implemented
 		//conn.Write([]byte(string(seq) + " OK STORE completed\r\n"))
 		conn.Write([]byte(string(seq) + " BAD\r\n"))
 
-	} else if (bytes.Index(c, []byte("CLOSE")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("CLOSE")) == 0) {
 
 		conn.Write([]byte(string(seq) + " OK CLOSE completed\r\n"))
 
-	} else if (bytes.Index(c, []byte("LOGOUT")) == 0) {
+	} else if (bytes.Index(upper_c, []byte("LOGOUT")) == 0) {
 
 		conn.Write([]byte("* BYE IMAP4rev1 server terminating connection\r\n"))
 		conn.Write([]byte(string(seq) + " OK LOGOUT completed\r\n"))
