@@ -17,6 +17,8 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"time"
+	mrand "math/rand"
+	"unsafe"
 	"encoding/pem"
 	"crypto/sha256"
 	"crypto/rand"
@@ -3214,4 +3216,29 @@ func smtp_client_read_command_response(conn net.Conn) (error, uint64, []byte) {
 
 	return nil, rlen, data
 
+}
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const (
+	letterIdxBits = 6                    // 6 bits to represent a letter index
+	letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
+	letterIdxMax  = 63 / letterIdxBits   // # of letter indices fitting in 63 bits
+)
+func RandStringBytesMaskImprSrcUnsafe(n int) string {
+	var src = mrand.NewSource(time.Now().UnixNano())
+	b := make([]byte, n)
+	// A src.Int63() generates 63 random bits, enough for letterIdxMax characters!
+	for i, cache, remain := n-1, src.Int63(), letterIdxMax; i >= 0; {
+		if remain == 0 {
+			cache, remain = src.Int63(), letterIdxMax
+		}
+		if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
+			b[i] = letterBytes[idx]
+			i--
+		}
+		cache >>= letterIdxBits
+		remain--
+	}
+
+	return *(*string)(unsafe.Pointer(&b))
 }

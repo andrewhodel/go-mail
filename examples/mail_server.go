@@ -36,8 +36,7 @@ var mailboxes_mutex = &sync.Mutex{}
 var message_store map[string] []gomail.Email
 var message_store_mutex = &sync.Mutex{}
 
-var resend_queue []gomail.OutboundMail
-var resend_queue_mutex = &sync.Mutex{}
+var resend_queue map[string] gomail.OutboundMail
 
 func main() {
 
@@ -159,6 +158,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	// init resend queue
+	resend_queue = make(map[string] gomail.OutboundMail)
 	go resend_loop()
 
 	go gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) bool {
@@ -358,9 +359,7 @@ func main() {
 
 						// add to resend_queue
 						om.FirstSendFailure = time.Now()
-						resend_queue_mutex.Lock()
-						resend_queue = append(resend_queue, om)
-						resend_queue_mutex.Unlock()
+						resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
 
 					} else {
 						fmt.Println("email received by server", om.Subj, om.To, om.From)
@@ -807,16 +806,14 @@ func resend_loop() {
 	// attempt SMTP resends every hour
 	time.Sleep(time.Minute * 60)
 
-	for m := len(resend_queue) - 1; m >= 0; m-- {
+	for m := range(resend_queue) {
 
 		now := time.Now()
 
-		if (now.Sub(resend_queue[m].FirstSendFailure).Hours() > 144) {
-			// delete after 6 days
-			fmt.Println("email resend failed after 144 hours", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
-			resend_queue_mutex.Lock()
-			resend_queue = resend_queue[0:m-1]
-			resend_queue_mutex.Unlock()
+		if (now.Sub(resend_queue[m].FirstSendFailure).Hours() > 72) {
+			// delete after 3 days
+			fmt.Println("email resend failed after 72 hours", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
+			delete(resend_queue, m)
 			continue
 		}
 
@@ -828,9 +825,7 @@ func resend_loop() {
 			fmt.Println("email received by server", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
 			//fmt.Println(email)
 			//fmt.Println(string(email))
-			resend_queue_mutex.Lock()
-			resend_queue = resend_queue[0:m-1]
-			resend_queue_mutex.Unlock()
+			delete(resend_queue, m)
 		}
 
 	}
