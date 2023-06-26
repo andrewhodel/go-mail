@@ -2183,73 +2183,42 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		// remove command name
 		c = c[6:]
 
-		fetch_arguments := bytes.SplitN(c, []byte(" ("), 2)
+		// remove ( and )
+		c = bytes.ReplaceAll(c, []byte("("), []byte(""))
+		c = bytes.ReplaceAll(c, []byte(")"), []byte(""))
 		var item_names []string
 
-		if (len(fetch_arguments) != 2) {
-
-			// item_names is a macro
-
-			/*
-			FULL
-			Macro equivalent to: (FLAGS INTERNALDATE RFC822.SIZE ENVELOPE
-			BODY)
-			*/
-
-			// split by space character, not " (" sequence
-			fetch_arguments := bytes.SplitN(c, []byte(" "), 2)
-
-			if (len(fetch_arguments) != 2) {
-				// invalid command
-				conn.Write([]byte(string(seq) + " BAD unknown command\r\n"))
-				return
+		var start_index = bytes.Index(c, []byte("["))
+		if (start_index > -1) {
+			// fetch_arguments needs to be parsed by spaces and items like BODY[HEADER BODY] need to be one item
+			var end_index = bytes.Index(c, []byte("]")) + 1
+			var n = 0
+			for {
+				if (c[start_index - n] == ' ') {
+					// this is the position before the BODY[
+					start_index = start_index - n + 1
+					break
+				}
+				n += 1
 			}
+			item_names = append(item_names, string(c[start_index:end_index]))
 
-			// add macro to item_names
-			item_names = append(item_names, string(fetch_arguments[1]))
-
-		} else {
-			// parse item_names
-
-			// remove last ) from second argument
-			fetch_arguments[1] = bytes.TrimRight(fetch_arguments[1], ")")
-
-			// get item names
-			var last_item []byte
-			inner_set := false
-			for l := range(fetch_arguments[1]) {
-
-				ch := fetch_arguments[1][l]
-
-				if (ch == ']') {
-					// add close of inner_set
-					last_item = append(last_item, ch)
-					inner_set = false
+			// remove the item with []
+			var c_temp []byte
+			for l := range(c) {
+				if (l >= start_index && l < end_index) {
+					// do not add this character
 					continue
 				}
-
-				if (ch == '[') {
-					inner_set = true
-				}
-
-				if (ch == ' ' && inner_set == false) {
-
-					// add last_item to item_names
-					item_names = append(item_names, string(last_item))
-					last_item = nil
-					continue
-				}
-
-				last_item = append(last_item, ch)
-
+				c_temp = append(c_temp, c[l])
 			}
 
-			if (last_item != nil) {
-				// add last_item to item_names
-				item_names = append(item_names, string(last_item))
-			}
-
+			c = c_temp
+			c_temp = nil
 		}
+
+
+		fetch_arguments := bytes.Split(c, []byte(" "))
 
 		// get sequence set
 		seq_set := strings.Split(string(fetch_arguments[0]), ":")
@@ -2259,6 +2228,15 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 			seq_set = nil
 			// add it from fetch_arguments
 			seq_set = append(seq_set, string(fetch_arguments[0]))
+		}
+
+		// add item_names
+		for i := range(fetch_arguments) {
+			if (i == 0) {
+				// skip the first, that is the sequence set
+				continue
+			}
+			item_names = append(item_names, string(fetch_arguments[i]))
 		}
 
 		// returns []Email
@@ -2443,18 +2421,22 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 					set the \Seen flag.
 					*/
 
-					// only write the headers for now
-					var header_string = ""
+					// get the headers
+					var s = ""
 					for h := range(m.Headers) {
-						header_string += h + ": " + m.Headers[h] + "\r\n"
+						s += h + ": " + m.Headers[h] + "\r\n"
 					}
 
-					conn.Write([]byte(item_names[i] + " {" + strconv.Itoa(len(header_string)) + "}\r\n" + header_string + "\r\n"))
-					fmt.Print(string([]byte(item_names[i] + " {" + strconv.Itoa(len(header_string)) + "}\r\n" + header_string + "\r\n")))
+					// add the newline sequence between the headers and the body
+					s += "\r\n"
+
+					// add the body
+					//s += string(m.Body) + "\r\n"
+
+					conn.Write([]byte(item_names[i] + " {" + strconv.Itoa(len(s)) + "}\r\n" + s))
+					fmt.Print(string([]byte(item_names[i] + " {" + strconv.Itoa(len(s)) + "}\r\n" + s)))
 
 				} else if (strings.Index(item_names[i], "BODY[") == 0) {
-
-					continue
 
 					if (add_space == true) {
 						conn.Write([]byte(" "))
@@ -2470,6 +2452,21 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 					specification refers to the entire message, including the
 					header.
 					*/
+
+					// get the headers
+					var s = ""
+					for h := range(m.Headers) {
+						s += h + ": " + m.Headers[h] + "\r\n"
+					}
+
+					// add the newline sequence between the headers and the body
+					s += "\r\n"
+
+					// add the body
+					s += string(m.Body) + "\r\n"
+
+					conn.Write([]byte(item_names[i] + " {" + strconv.Itoa(len(s)) + "}\r\n" + s))
+					fmt.Print(string([]byte(item_names[i] + " {" + strconv.Itoa(len(s)) + "}\r\n" + s)))
 
 				}
 

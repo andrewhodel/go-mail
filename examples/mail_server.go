@@ -42,8 +42,8 @@ func main() {
 
 	// init users
 	users = make(map[string] string)
-	users["andrew@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	users["no-reply@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	users["andrew@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	users["no-reply@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 	// initialize the message store
 	message_store = make(map[string] []gomail.Email)
@@ -62,6 +62,7 @@ func main() {
 	one.InternalDate = time.Now()
 	one.Rfc822Size = 1000
 	one.Mailbox = "INBOX"
+	one.Body = []byte("data of body")
 	message_store["andrew@xyzbots.com"] = append(message_store["andrew@xyzbots.com"], one)
 
 	var two gomail.Email
@@ -78,6 +79,7 @@ func main() {
 	two.InternalDate = time.Now()
 	two.Rfc822Size = 1000
 	two.Mailbox = "INBOX"
+	two.Body = []byte("data of body")
 	message_store["andrew@xyzbots.com"] = append(message_store["andrew@xyzbots.com"], two)
 
 	// initialize the mailboxes
@@ -712,15 +714,41 @@ func main() {
 		// return []Email
 		// the Body field only needs to be set if requested
 
+		var return_all_in_mailbox = false
+		if (sequence_set[len(sequence_set)-1] == "*") {
+			return_all_in_mailbox = true
+		}
+
 		// return emails from selected mailbox
 		var selected_mailbox = "INBOX"
 		var emails []gomail.Email
 		message_store_mutex.Lock()
 		for m := range(message_store[auth_login]) {
 			if (message_store[auth_login][m].Mailbox == selected_mailbox) {
+
 				email := message_store[auth_login][m]
-				// remove body if needed
-				email.Body = nil
+
+				if (return_all_in_mailbox == false) {
+					var skip = true
+					for s := range(sequence_set) {
+						sci, sci_err := strconv.Atoi(sequence_set[s])
+						if (sci_err != nil) {
+							// go to next
+							continue
+						}
+						if (sci == email.Uid) {
+							skip = false
+							break
+						}
+					}
+					if (skip == true) {
+						continue
+					}
+				} else {
+					// do not remove body if returning all messages
+					email.Body = nil
+				}
+
 				emails = append(emails, email)
 			}
 		}
@@ -810,9 +838,9 @@ func resend_loop() {
 
 		now := time.Now()
 
-		if (now.Sub(resend_queue[m].FirstSendFailure).Hours() > 72) {
-			// delete after 3 days
-			fmt.Println("email resend failed after 72 hours", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
+		if (now.Sub(resend_queue[m].FirstSendFailure).Hours() > 144) {
+			// delete after 6 days
+			fmt.Println("email resend failed after 144 hours", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
 			delete(resend_queue, m)
 			continue
 		}
