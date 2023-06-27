@@ -5,7 +5,7 @@ curl --user andrew@xyzbots.com:aaa "imaps://xyzbots.com/INBOX"
 * LIST () "" INBOX
 
 # SEARCH INBOX and return all email UIDs
-curl --user andrew@xyzbots.com:aaa "imaps://xyzbots.com/INBOX" -X "SEARCH INBOX"
+curl --user andrew@xyzbots.com:aaa "imaps://xyzbots.com/INBOX" -X "SEARCH"
 * SEARCH 1 2
 
 # FETCH email by UID
