@@ -2201,6 +2201,28 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 				}
 				n += 1
 			}
+
+			if (len(c) > end_index) {
+				// there may be a partial length in <> after []
+				if (c[end_index+1] == '<') {
+					// there is a partial length
+					var l = 1
+					for {
+						if (len(c) <= end_index + l) {
+							// an invalid partial length was sent
+							conn.Write([]byte(string(seq) + " BAD FETCH invalid partial length\r\n"))
+							return
+						}
+						if (c[end_index+l] == '>') {
+							// set the end_index to include the partial length
+							end_index = end_index + l
+							break
+						}
+						l += 1
+					}
+				}
+			}
+
 			item_names = append(item_names, string(c[start_index:end_index]))
 
 			// remove the item with []
