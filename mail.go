@@ -1602,6 +1602,13 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 	// each command can be up to 512 bytes
 	// remove all characters at \r\n
 	var end_pos = bytes.Index(c, []byte("\r\n"))
+
+	if (end_pos == -1) {
+		// invalid command
+		conn.Write([]byte("-ERR invalid command\r\n"))
+		return
+	}
+
 	c = c[0:end_pos]
 
 	//fmt.Printf("POP3 command: %s\n", c)
