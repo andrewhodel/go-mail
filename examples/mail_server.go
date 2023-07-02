@@ -42,8 +42,9 @@ func main() {
 
 	// init users
 	users = make(map[string] string)
-	users["andrew@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	users["no-reply@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	users["andrew@xyzbots.com"] = "aaaaaaaaaaaaaaa"
+	users["no-reply@xyzbots.com"] = "aaaaaaaaaaaaaaaaaaaa"
+	users["billing@cobianet.com"] = "aaaaaaaaaaaaaaaaa"
 
 	// initialize the message store
 	message_store = make(map[string] []gomail.Email)
@@ -173,9 +174,9 @@ func main() {
 		// esmtp_authed		ESTMP authed status (set in this closure)
 
 		// MAIL FROM
-		fmt.Println("mail from", from_address)
-		fmt.Println("AUTH login", auth_login)
-		fmt.Println("AUTH password", auth_password)
+		//fmt.Println("mail from", from_address)
+		//fmt.Println("AUTH login", auth_login)
+		//fmt.Println("AUTH password", auth_password)
 
 		// get the email local-part and domain
 		address_parts := strings.Split(from_address, "@")
@@ -186,18 +187,11 @@ func main() {
 			return false
 		}
 
-		if (address_parts[1] == config.Fqdn) {
-			// this email is of this sending domain
-
-			// authenticate the session with esmtp
-			if (from_address == "") {
-			} else if (users[from_address] == auth_password) {
-				// authenticated
-				*esmtp_authed = true
-			}
-
-		} else {
-			// this email is of an external sending domain
+		// authenticate the session with esmtp
+		if (from_address == "" || auth_password == "") {
+		} else if (users[from_address] == auth_password) {
+			// authenticated
+			*esmtp_authed = true
 		}
 
 		// return true if allowed
@@ -211,35 +205,21 @@ func main() {
 		// esmtp_authed		ESTMP authed status
 
 		// RCPT TO
-		fmt.Println("mail to", to_address)
-
-		// get the email local-part and domain
-		address_parts := strings.Split(to_address, "@")
-
-		if (len(address_parts) != 2) {
-			// to_address must be in the form local-part@domain.tld
-			return false
-		}
+		//fmt.Println("mail to", to_address)
 
 		// return true if allowed
 		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
-		if (address_parts[1] != config.Fqdn) {
-			// this email is to be sent to another server
 
-			if (*esmtp_authed == false) {
-				// only send emails to other servers if the session is esmtp authenticated
-				return false
-			}
-		} else {
-			// make sure the local account exists
-			if (users[address_parts[0]] == "") {
-				// no local account exists
-				return false
-			}
+		if (*esmtp_authed == true) {
+			// allow sending emails to other servers if the session is esmtp authenticated
+			return true
+		} else if (users[to_address] != "") {
+			// local account exists
+			return true
 		}
 
-		// email is to this domain or from an esmtp authenticated session
-		return true
+		// this email is invalid
+		return false
 
 	}, func(headers map[string]string, ip string, esmtp_authed *bool) bool {
 
@@ -327,11 +307,10 @@ func main() {
 
 				fmt.Println("sending to ", send_addresses[a])
 
-				// get the email local-part and domain
-				address_parts := strings.Split(tf.Address, "@")
-				if (address_parts[1] == config.Fqdn) {
+				if (users[tf.Address] != "") {
 					// send to local domain
 					fmt.Println("send to local domain")
+					fmt.Println(string(*email_data))
 				} else {
 
 					if (*esmtp_authed == false) {
