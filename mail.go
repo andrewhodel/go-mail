@@ -40,8 +40,8 @@ import (
 	"github.com/andrewhodel/go-ip-ac"
 )
 
-type mail_from_func func(string, string, string, string, *bool) bool
-type rcpt_to_func func(string, string, *bool) bool
+type mail_from_func func(string, string, string, string, *bool) (bool, string)
+type rcpt_to_func func(string, string, *bool) (bool, string)
 type headers_func func(map[string]string, string, *bool) bool
 type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *bool)
 type pop3_auth_func func(string, string, string, string) bool
@@ -318,15 +318,20 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 		*mail_from = string(s)
 
-		var mail_from_authed = mail_from_func(string(s), ip, *auth_login, *auth_password, esmtp_authed)
+		var mail_from_authed, mail_from_error_string = mail_from_func(string(s), ip, *auth_login, *auth_password, esmtp_authed)
 
 		if (mail_from_authed == false) {
 
 			// invalid auth
 			ipac.ModifyAuth(&ip_ac, 1, ip)
 
-			// return 221
-			conn.Write([]byte("221 not authorized\r\n"))
+			if (mail_from_error_string == "") {
+				// use default response, 221
+				conn.Write([]byte("221 not authorized\r\n"))
+			} else {
+				// use mail_from_error_string
+				conn.Write([]byte(mail_from_error_string + "\r\n"))
+			}
 			conn.Close()
 		} else {
 			conn.Write([]byte("250 AUTH\r\n"))
@@ -351,7 +356,8 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 		*to_address = string(s)
 
-		*authed = rcpt_to_func(string(s), ip, esmtp_authed)
+		var rcpt_to_error_string string
+		*authed, rcpt_to_error_string = rcpt_to_func(string(s), ip, esmtp_authed)
 
 		if (*authed == true) {
 			conn.Write([]byte("250 OK\r\n"))
@@ -360,9 +366,13 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 			// invalid auth
 			ipac.ModifyAuth(&ip_ac, 1, ip)
 
-			// 221 <domain>
-			// service closing transmission channel
-			conn.Write([]byte("221 not authorized\r\n"))
+			if (rcpt_to_error_string == "") {
+				// 550 to indicate no mailbox found
+				conn.Write([]byte("550 mailbox not available\r\n"))
+			} else {
+				// use rcpt_to_error_string
+				conn.Write([]byte(rcpt_to_error_string + "\r\n"))
+			}
 			conn.Close()
 		}
 

@@ -165,7 +165,7 @@ func main() {
 	resend_queue = make(map[string] gomail.OutboundMail)
 	go resend_loop()
 
-	go gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) bool {
+	go gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) (bool, string) {
 
 		// from_address		MAIL FROM value
 		// ip			ip address of the sending client
@@ -184,7 +184,7 @@ func main() {
 
 		if (len(address_parts) != 2) {
 			// from_address must be in the form local-part@domain.tld
-			return false
+			return false, ""
 		}
 
 		// authenticate the session with esmtp
@@ -192,13 +192,16 @@ func main() {
 		} else if (users[from_address] == auth_password) {
 			// authenticated
 			*esmtp_authed = true
+			return true, ""
 		}
 
-		// return true if allowed
-		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
-		return true
+		// only allow esmtp_authed == true
+		// the 2nd argument can be set to something other than the default "221 not authorized"
+		// like "221 your IP address is spamming too much, 5000 emails in the last 15 seconds"
+		// like "221 your domain is spamming too much, 5000 emails in the last 15 seconds"
+		return false, ""
 
-	}, func(to_address string, ip string, esmtp_authed *bool) bool {
+	}, func(to_address string, ip string, esmtp_authed *bool) (bool, string) {
 
 		// to_address		RCPT TO value
 		// ip			ip address of the sending client
@@ -212,14 +215,16 @@ func main() {
 
 		if (*esmtp_authed == true) {
 			// allow sending emails to other servers if the session is esmtp authenticated
-			return true
+			return true, ""
 		} else if (users[to_address] != "") {
 			// local account exists
-			return true
+			return true, ""
 		}
 
 		// this email is invalid
-		return false
+		// the 2nd argument can be set to something other than the default "550 mailbox not found"
+		// like "550 RCPT TO address is being rate limited"
+		return false, ""
 
 	}, func(headers map[string]string, ip string, esmtp_authed *bool) bool {
 
