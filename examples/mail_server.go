@@ -244,10 +244,12 @@ func main() {
 		// ip			ip address of the sending client
 		// esmtp_authed		ESTMP authed status
 
-		fmt.Println("full email received, length", len(*email_data))
 		//fmt.Println(string((*email_data)))
-		fmt.Println("dkim valid:", *dkim_valid)
-		fmt.Println("ip of smtp client", *ip)
+		var dkim_string = "false"
+		if (*dkim_valid == true) {
+			dkim_string = "true"
+		}
+		var console_output = "full email received, length: " + strconv.Itoa(len(*email_data)) + "\nDKIM valid: " + dkim_string + "\nIP Address: " + *ip
 
 		// get list of each address to send to
 		// send to external servers
@@ -305,24 +307,24 @@ func main() {
 
 			for a := range(send_addresses) {
 
-				fmt.Println("sending to ", send_addresses[a])
+				console_output += "\nsending to: " + send_addresses[a].Address
 
 				if (users[tf.Address] != "") {
 					// send to local domain
-					fmt.Println("send to local domain")
-					fmt.Println(string(*email_data))
+					console_output += "\nstoring at local domain:\n" + string(*email_data)
 				} else {
 
 					if (*esmtp_authed == false) {
 						// never send to external domains unless esmtp authed
-						fmt.Println("not sending to external domain, not esmtp authed")
+						console_output += "\nnot sending to external domain, not esmtp authed"
+						fmt.Println(console_output)
 						continue
 					}
 
 					// send via SMTP
 					var om gomail.OutboundMail
 					om.DkimPrivateKey = pk
-					om.DkimDomain = "fgkhdgsfgdds._domainkey.xyzbots.com"
+					om.DkimDomain = "hjdfjhjgdfh._domainkey.ispapp.co"
 					om.From = *pf
 					om.Subj = (*headers)["subject"]
 					om.Body = (*email_data)[h_split_pos:end_split_pos]
@@ -336,14 +338,15 @@ func main() {
 					err, _ := gomail.SendMail(om)
 
 					if (err != nil) {
-						fmt.Println("gomail.SendMail() error:", err)
+						console_output += "\ngomail.SendMail() error: " + err.Error()
 
 						// add to resend_queue
 						om.FirstSendFailure = time.Now()
 						resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
 
 					} else {
-						fmt.Println("email received by server", om.Subj, om.To, om.From)
+
+						console_output += "\nemail received by server\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\n" + om.Subj
 						//fmt.Println(email)
 						//fmt.Println(string(email))
 					}
@@ -353,6 +356,8 @@ func main() {
 			}
 
 		}
+
+		fmt.Println("*****\n" + console_output + "\n*****")
 
 	})
 
