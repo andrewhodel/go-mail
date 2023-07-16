@@ -2918,7 +2918,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	}
 
 	// read server greeting
-	read_err, _, read_data := smtp_client_read_command_response(conn)
+	read_err, _, read_data := smtp_client_read_command_response_line(conn)
 
 	if (read_err != nil) {
 		return read_err, nil
@@ -2932,7 +2932,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
 	for (true) {
 
-		read_err, _, read_data = smtp_client_read_command_response(conn)
+		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
 		if (read_err != nil) {
 			return read_err, nil
@@ -2985,7 +2985,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 				// send STARTTLS command and read response
 				conn.Write([]byte("STARTTLS\r\n"))
 
-				read_err, _, read_data = smtp_client_read_command_response(conn)
+				read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
 				if (read_err != nil) {
 					return read_err, nil
@@ -3050,7 +3050,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 				conn.Write([]byte("AUTH PLAIN " + b64_string + "\r\n"))
 
 				// 235 response expected
-				read_err, _, read_data = smtp_client_read_command_response(conn)
+				read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
 				if (read_err != nil) {
 					return read_err, nil
@@ -3069,7 +3069,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	// send MAIL FROM command and read response
 	conn.Write([]byte("MAIL FROM:<" + outbound_mail.From.Address + ">\r\n"))
 
-	read_err, _, read_data = smtp_client_read_command_response(conn)
+	read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
 	if (read_err != nil) {
 		return read_err, nil
@@ -3080,7 +3080,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 		// send RCPT TO command and read response
 		conn.Write([]byte("RCPT TO:<" + outbound_mail.To[i].Address + ">\r\n"))
 
-		read_err, _, read_data = smtp_client_read_command_response(conn)
+		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
 		if (read_err != nil) {
 			return read_err, nil
@@ -3093,7 +3093,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 		// send RCPT TO command and read response
 		conn.Write([]byte("RCPT TO:<" + outbound_mail.Cc[i].Address + ">\r\n"))
 
-		read_err, _, read_data = smtp_client_read_command_response(conn)
+		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
 		if (read_err != nil) {
 			return read_err, nil
@@ -3106,7 +3106,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 		// send RCPT TO command and read response
 		conn.Write([]byte("RCPT TO:<" + outbound_mail.Bcc[i].Address + ">\r\n"))
 
-		read_err, _, read_data = smtp_client_read_command_response(conn)
+		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
 		if (read_err != nil) {
 			return read_err, nil
@@ -3117,15 +3117,35 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	// send DATA command and read response
 	conn.Write([]byte("DATA\r\n"))
 
-	read_err, _, read_data = smtp_client_read_command_response(conn)
+	var error_string = ""
 
-	if (read_err != nil) {
-		return read_err, nil
+	after_data_error := false
+	for (true) {
+
+		// shorten the read deadline as this is after the DATA has been sent
+		conn.SetReadDeadline(time.Now().Add(time.Second * 10))
+
+		read_err, _, read_data = smtp_client_read_command_response_line(conn)
+
+		if (read_err != nil) {
+			break
+		}
+
+		if (bytes.Index(read_data, []byte("354")) == 0 && after_data_error == false) {
+			// finished
+			break
+		} else {
+			// error
+			error_string += string(read_data) + "\n"
+			// continue gathering error message
+			after_data_error = true
+		}
+
 	}
 
-	if (bytes.Index(read_data, []byte("354")) != 0) {
+	if (error_string != "") {
 		// error
-		return errors.New("smtp server did not respond with 354 after DATA command, " + string(read_data)), nil
+		return errors.New("smtp server did not respond with 354 after DATA command, " + error_string), nil
 	}
 
 	buf := bytes.Buffer{}
@@ -3150,14 +3170,9 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 	buf.Write([]byte("\r\n"))
 	buf.Write(outbound_mail.Body)
 
-	var error_string = ""
-
 	for (true) {
 
-		// shorten the read deadline as this is after the DATA has been sent
-		conn.SetReadDeadline(time.Now().Add(time.Second * 10))
-
-		read_err, _, read_data = smtp_client_read_command_response(conn)
+		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
 		if (read_err != nil) {
 			break
@@ -3185,7 +3200,7 @@ func SendMail(outbound_mail OutboundMail) (error, []byte) {
 
 }
 
-func smtp_client_read_command_response(conn net.Conn) (error, uint64, []byte) {
+func smtp_client_read_command_response_line(conn net.Conn) (error, uint64, []byte) {
 
 	var data []byte
 	var rlen uint64 = 0
