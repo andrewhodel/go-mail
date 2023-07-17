@@ -822,13 +822,15 @@ func resend_loop() {
 	// attempt SMTP resends every hour
 	time.Sleep(time.Minute * 60)
 
+	var console_output = ""
+
 	for m := range(resend_queue) {
 
 		now := time.Now()
 
 		if (now.Sub(resend_queue[m].FirstSendFailure).Hours() > 144) {
 			// delete after 6 days
-			fmt.Println("email resend failed after 144 hours", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
+			console_output += "\nemail resend failed for 144 hours, REMOVING from resend queue\n" + "to: " + resend_queue[m].To[0].Address + "\nfrom: " + resend_queue[m].From.Address + "\nsubject: " + resend_queue[m].Subj
 			delete(resend_queue, m)
 			continue
 		}
@@ -836,14 +838,18 @@ func resend_loop() {
 		err, _ := gomail.SendMail(resend_queue[m])
 
 		if (err != nil) {
-			fmt.Println("gomail.SendMail() error:", err)
+			console_output += "\ngomail.SendMail() error: " + err.Error()
 		} else {
-			fmt.Println("email received by server", resend_queue[m].Subj, resend_queue[m].To, resend_queue[m].From)
+			console_output += "\nemail received by server\n" + "to: " + resend_queue[m].To[0].Address + "\nfrom: " + resend_queue[m].From.Address + "\nsubject: " + resend_queue[m].Subj
 			//fmt.Println(email)
 			//fmt.Println(string(email))
 			delete(resend_queue, m)
 		}
 
+	}
+
+	if (console_output != "") {
+		fmt.Println("*SMTP RESEND(S)\n" + console_output + "*\n")
 	}
 
 	go resend_loop()
