@@ -2671,7 +2671,6 @@ func smtpReplyCode(s []byte) int {
 
 	code_string := ""
 	for i, r := range(s) {
-		fmt.Println(i, r)
 		if (r >= 48 && r <= 57) {
 			// number
 			code_string += string(s[:i])
