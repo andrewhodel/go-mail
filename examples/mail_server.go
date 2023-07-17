@@ -322,7 +322,6 @@ func main() {
 					if (*esmtp_authed == false) {
 						// never send to external domains unless esmtp authed
 						console_output += "\nnot sending to external domain, not esmtp authed"
-						fmt.Println(console_output)
 						continue
 					}
 
@@ -351,7 +350,7 @@ func main() {
 
 					} else {
 
-						console_output += "\nemail received by server\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\n" + om.Subj
+						console_output += "\nemail received by server\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "subject: \n" + om.Subj
 						//fmt.Println(email)
 						//fmt.Println(string(email))
 					}
