@@ -223,7 +223,7 @@ func main() {
 
 		// this email is invalid
 		// the 2nd argument can be set to something other than the default "550 mailbox not found"
-		// like "550 RCPT TO address is being rate limited"
+		// like "450 RCPT TO address is being rate limited"
 		return false, ""
 
 	}, func(headers map[string]string, ip string, esmtp_authed *bool) bool {
@@ -339,14 +339,22 @@ func main() {
 					// add to address
 					om.To = []mail.Address{send_addresses[a]}
 
-					err, _ := gomail.SendMail(om)
+					err, return_code, _ := gomail.SendMail(om)
 
 					if (err != nil) {
 						console_output += "\ngomail.SendMail() error: " + err.Error()
 
-						// add to resend_queue
-						om.FirstSendFailure = time.Now()
-						resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
+						if (return_code == 550 || return_code == 551) {
+							// 550 is mailbox not found, no access or command rejected for policy reasons
+							// 551 is user not local; please try <forward-path>
+							// do not add to resend_queue
+						} else {
+
+							// add to resend_queue
+							om.FirstSendFailure = time.Now()
+							resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
+
+						}
 
 					} else {
 
