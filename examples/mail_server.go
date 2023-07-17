@@ -845,7 +845,7 @@ func resend_loop() {
 			continue
 		}
 
-		err, _ := gomail.SendMail(resend_queue[m])
+		err, _, _ := gomail.SendMail(resend_queue[m])
 
 		if (err != nil) {
 			console_output += "\ngomail.SendMail() error: " + err.Error()
