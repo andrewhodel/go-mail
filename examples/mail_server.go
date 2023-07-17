@@ -828,9 +828,11 @@ func resend_loop() {
 
 		now := time.Now()
 
+		console_output += "\nemail resend\n" + "to: " + resend_queue[m].To[0].Address + "\nfrom: " + resend_queue[m].From.Address + "\nsubject: " + resend_queue[m].Subj
+
 		if (now.Sub(resend_queue[m].FirstSendFailure).Hours() > 144) {
 			// delete after 6 days
-			console_output += "\nemail resend failed for 144 hours, REMOVING from resend queue\n" + "to: " + resend_queue[m].To[0].Address + "\nfrom: " + resend_queue[m].From.Address + "\nsubject: " + resend_queue[m].Subj
+			console_output += "\nemail resend failed for 144 hours, REMOVING from resend queue"
 			delete(resend_queue, m)
 			continue
 		}
@@ -840,7 +842,7 @@ func resend_loop() {
 		if (err != nil) {
 			console_output += "\ngomail.SendMail() error: " + err.Error()
 		} else {
-			console_output += "\nemail received by server\n" + "to: " + resend_queue[m].To[0].Address + "\nfrom: " + resend_queue[m].From.Address + "\nsubject: " + resend_queue[m].Subj
+			console_output += "\nemail received by server"
 			//fmt.Println(email)
 			//fmt.Println(string(email))
 			delete(resend_queue, m)
@@ -849,7 +851,7 @@ func resend_loop() {
 	}
 
 	if (console_output != "") {
-		fmt.Println("*SMTP RESEND(S)\n" + console_output + "*\n")
+		fmt.Println("*\nSMTP RESEND(S)\n" + console_output + "\n*\n")
 	}
 
 	go resend_loop()
