@@ -350,7 +350,7 @@ func main() {
 
 					} else {
 
-						console_output += "\nemail received by server\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "subject: \n" + om.Subj
+						console_output += "\nemail received by server\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj
 						//fmt.Println(email)
 						//fmt.Println(string(email))
 					}
