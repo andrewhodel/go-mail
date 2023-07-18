@@ -312,7 +312,7 @@ func main() {
 
 			for a := range(send_addresses) {
 
-				console_output += "\nsending to: " + send_addresses[a].Address
+				console_output += "\nsending email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj
 
 				if (users[tf.Address] != "") {
 					// send to local domain
@@ -358,7 +358,7 @@ func main() {
 
 					} else {
 
-						console_output += "\nemail received by server\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj
+						console_output += "email received by server\n"
 						//fmt.Println(email)
 						//fmt.Println(string(email))
 					}
