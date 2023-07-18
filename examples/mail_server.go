@@ -312,8 +312,6 @@ func main() {
 
 			for a := range(send_addresses) {
 
-				console_output += "\nsending email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj
-
 				if (users[tf.Address] != "") {
 					// send to local domain
 					console_output += "\nstoring at local domain:\n" + string(*email_data)
@@ -338,6 +336,8 @@ func main() {
 
 					// add to address
 					om.To = []mail.Address{send_addresses[a]}
+
+					console_output += "\nsending email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj
 
 					err, return_code, _ := gomail.SendMail(om)
 
