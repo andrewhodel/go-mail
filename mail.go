@@ -240,6 +240,11 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 		//fmt.Printf("EHLO command\n")
 
+		// multi line replies to an SMTP client
+		// use the same code with a dash after it
+		// and no dash on the last line
+		// to know where the reply ends
+
 		// respond with 250-
 		// supported SMTP extensions
 		conn.Write([]byte("250-" + config.Fqdn + "\r\n"))
@@ -2667,20 +2672,36 @@ func imap4HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config,
 
 }
 
-func smtpReplyCode(s []byte) int {
+func smtpReplyCode(s []byte) (int, bool) {
+
+	// multi line replies to an SMTP client
+	// use the same code with a dash after it
+	// and no dash on the last line
+	// to know where the reply ends
+
+	// returns code, isMultiLine
 
 	code_string := ""
+	is_multiline := false
 	for i, r := range(s) {
+
+		if (len(code_string) > 0 && r == 45) {
+			// the minus, hyphen or dash means this is the end of a multiline reply
+			is_multiline = true
+			break
+		}
+
 		if (r >= 48 && r <= 57) {
 			// number
-			code_string += string(s[:i])
+			code_string += string(s[i])
 		} else {
 			// non number
 			break
 		}
 	}
+
 	i, _ := strconv.Atoi(code_string)
-	return i
+	return i, is_multiline
 
 }
 
@@ -2944,15 +2965,37 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 
 	}
 
-	var reply_code = 0
+	var reply_string string
+	var read_err error
+	var read_data []byte
+	var reply_code int
+	var is_multiline bool
 
 	// read server greeting
-	read_err, _, read_data := smtp_client_read_command_response_line(conn)
 
-	reply_code = smtpReplyCode(read_data)
+	for (true) {
 
-	if (read_err != nil) {
-		return read_err, reply_code, nil
+		read_err, _, read_data = smtp_client_read_command_response_line(conn)
+
+		reply_code, is_multiline = smtpReplyCode(read_data)
+
+		if (read_err != nil) {
+			return read_err, reply_code, nil
+		}
+
+		reply_string += string(read_data) + "\n"
+
+		if (is_multiline == false) {
+			// finished
+			break
+		}
+
+		if (len(reply_string) > 512 * 30) {
+			// server has returned too many lines
+			// to be considered reasonable
+			return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
+		}
+
 	}
 
 	// send EHLO command and read response
@@ -2961,15 +3004,18 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 	// after EHLO the server may respond with ESMTP extensions
 	var esmtps []Esmtp
 
+	reply_string = ""
 	for (true) {
 
 		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		reply_code = smtpReplyCode(read_data)
+		reply_code, is_multiline = smtpReplyCode(read_data)
 
 		if (read_err != nil) {
 			return read_err, reply_code, nil
 		}
+
+		reply_string += string(read_data) + "\n"
 
 		if (bytes.Index(read_data, []byte("250-")) == 0) {
 			// the server responded with a ESTMP extension
@@ -2986,10 +3032,17 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 
 			esmtps = append(esmtps, supported_extension)
 
-		} else if (bytes.Index(read_data, []byte("250")) == 0) {
-			// this command completes the EHLO response
-			// per SMTP it must be 250
+		}
+
+		if (is_multiline == false) {
+			// finished
 			break
+		}
+
+		if (len(reply_string) > 512 * 30) {
+			// server has returned too many lines
+			// to be considered reasonable
+			return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
 		}
 
 	}
@@ -3018,15 +3071,37 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 				// send STARTTLS command and read response
 				conn.Write([]byte("STARTTLS\r\n"))
 
-				read_err, _, read_data = smtp_client_read_command_response_line(conn)
+				// 220 returned per SMTP
 
-				reply_code = smtpReplyCode(read_data)
+				reply_string = ""
+				for (true) {
 
-				if (read_err != nil) {
-					return read_err, reply_code, nil
+					read_err, _, read_data = smtp_client_read_command_response_line(conn)
+
+					reply_code, is_multiline = smtpReplyCode(read_data)
+
+					if (read_err != nil) {
+						return read_err, reply_code, nil
+					}
+
+					reply_string += string(read_data) + "\n"
+
+					if (is_multiline == false) {
+						// finished
+						break
+					}
+
+					if (len(reply_string) > 512 * 30) {
+						// server has returned too many lines
+						// to be considered reasonable
+						return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
+					}
+
 				}
 
-				// 250 returned per SMTP
+				if (reply_code != 220) {
+					return errors.New("smtp server did not respond with 220 after STARTTLS, " + reply_string), reply_code, nil
+				}
 
 				if (outbound_mail.ReceivingHostTlsConfig == nil) {
 
@@ -3085,12 +3160,35 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 				conn.Write([]byte("AUTH PLAIN " + b64_string + "\r\n"))
 
 				// 235 response expected
-				read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-				reply_code = smtpReplyCode(read_data)
+				reply_string = ""
+				for (true) {
 
-				if (read_err != nil) {
-					return read_err, reply_code, nil
+					read_err, _, read_data = smtp_client_read_command_response_line(conn)
+
+					reply_code, is_multiline = smtpReplyCode(read_data)
+
+					if (read_err != nil) {
+						return read_err, reply_code, nil
+					}
+
+					reply_string += string(read_data) + "\n"
+
+					if (is_multiline == false) {
+						// finished
+						break
+					}
+
+					if (len(reply_string) > 512 * 30) {
+						// server has returned too many lines
+						// to be considered reasonable
+						return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
+					}
+
+				}
+
+				if (reply_code != 235) {
+					return errors.New("smtp server did not respond with 235 after AUTH PLAIN, " + reply_string), reply_code, nil
 				}
 
 				//fmt.Println("AUTH PLAIN response (235 means authorized)")
@@ -3106,12 +3204,51 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 	// send MAIL FROM command and read response
 	conn.Write([]byte("MAIL FROM:<" + outbound_mail.From.Address + ">\r\n"))
 
-	read_err, _, read_data = smtp_client_read_command_response_line(conn)
+	reply_string = ""
+	for (true) {
 
-	reply_code = smtpReplyCode(read_data)
+		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-	if (read_err != nil) {
-		return read_err, reply_code, nil
+		reply_code, is_multiline = smtpReplyCode(read_data)
+
+		if (read_err != nil) {
+			return read_err, reply_code, nil
+		}
+
+		reply_string += string(read_data) + "\n"
+
+		if (bytes.Index(read_data, []byte("250-")) == 0) {
+			// the server responded with a ESTMP extension
+			// add it to esmtps and read the next command
+
+			// get extension name
+			var e = string(bytes.Split(read_data, []byte("250-"))[1])
+			// get extension parts
+			var p = strings.Split(e, " ")
+
+			var supported_extension Esmtp
+			supported_extension.Name = p[0]
+			supported_extension.Parts = p[1:len(p)]
+
+			esmtps = append(esmtps, supported_extension)
+
+		}
+
+		if (is_multiline == false) {
+			// finished
+			break
+		}
+
+		if (len(reply_string) > 512 * 30) {
+			// server has returned too many lines
+			// to be considered reasonable
+			return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
+		}
+
+	}
+
+	if (reply_code != 250) {
+		return errors.New("smtp server did not respond with 250 after MAIL FROM command, " + reply_string), reply_code, nil
 	}
 
 	for i := range outbound_mail.To {
@@ -3119,12 +3256,34 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 		// send RCPT TO command and read response
 		conn.Write([]byte("RCPT TO:<" + outbound_mail.To[i].Address + ">\r\n"))
 
-		read_err, _, read_data = smtp_client_read_command_response_line(conn)
+		reply_string = ""
+		for (true) {
 
-		reply_code = smtpReplyCode(read_data)
+			read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		if (read_err != nil) {
-			return read_err, reply_code, nil
+			reply_code, is_multiline = smtpReplyCode(read_data)
+
+			if (read_err != nil) {
+				return read_err, reply_code, nil
+			}
+
+			reply_string += string(read_data) + "\n"
+
+			if (is_multiline == false) {
+				// finished
+				break
+			}
+
+			if (len(reply_string) > 512 * 30) {
+				// server has returned too many lines
+				// to be considered reasonable
+				return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
+			}
+
+		}
+
+		if (reply_code != 250) {
+			return errors.New("smtp server did not respond with 250 after RCPT TO command, " + reply_string), reply_code, nil
 		}
 
 	}
@@ -3134,12 +3293,34 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 		// send RCPT TO command and read response
 		conn.Write([]byte("RCPT TO:<" + outbound_mail.Cc[i].Address + ">\r\n"))
 
-		read_err, _, read_data = smtp_client_read_command_response_line(conn)
+		reply_string = ""
+		for (true) {
 
-		reply_code = smtpReplyCode(read_data)
+			read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		if (read_err != nil) {
-			return read_err, reply_code, nil
+			reply_code, is_multiline = smtpReplyCode(read_data)
+
+			if (read_err != nil) {
+				return read_err, reply_code, nil
+			}
+
+			reply_string += string(read_data) + "\n"
+
+			if (is_multiline == false) {
+				// finished
+				break
+			}
+
+			if (len(reply_string) > 512 * 30) {
+				// server has returned too many lines
+				// to be considered reasonable
+				return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
+			}
+
+		}
+
+		if (reply_code != 250) {
+			return errors.New("smtp server did not respond with 250 after RCPT TO command, " + reply_string), reply_code, nil
 		}
 
 	}
@@ -3149,12 +3330,34 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 		// send RCPT TO command and read response
 		conn.Write([]byte("RCPT TO:<" + outbound_mail.Bcc[i].Address + ">\r\n"))
 
-		read_err, _, read_data = smtp_client_read_command_response_line(conn)
+		reply_string = ""
+		for (true) {
 
-		reply_code = smtpReplyCode(read_data)
+			read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		if (read_err != nil) {
-			return read_err, reply_code, nil
+			reply_code, is_multiline = smtpReplyCode(read_data)
+
+			if (read_err != nil) {
+				return read_err, reply_code, nil
+			}
+
+			reply_string += string(read_data) + "\n"
+
+			if (is_multiline == false) {
+				// finished
+				break
+			}
+
+			if (len(reply_string) > 512 * 30) {
+				// server has returned too many lines
+				// to be considered reasonable
+				return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
+			}
+
+		}
+
+		if (reply_code != 250) {
+			return errors.New("smtp server did not respond with 250 after RCPT TO command, " + reply_string), reply_code, nil
 		}
 
 	}
@@ -3162,42 +3365,34 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 	// send DATA command and read response
 	conn.Write([]byte("DATA\r\n"))
 
-	var error_string = ""
-
-	after_data_error := false
-	loop_count := 0
+	reply_string = ""
 	for (true) {
-
-		// shorten the read deadline as this is after the DATA has been sent
-		conn.SetReadDeadline(time.Now().Add(time.Second * 10))
 
 		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		if (loop_count == 0) {
-			// the SMTP code is only sent in the first line after the DATA command
-			reply_code = smtpReplyCode(read_data)
-		}
-		loop_count += 1
+		reply_code, is_multiline = smtpReplyCode(read_data)
 
 		if (read_err != nil) {
+			return read_err, reply_code, nil
+		}
+
+		reply_string += string(read_data) + "\n"
+
+		if (is_multiline == false) {
+			// finished
 			break
 		}
 
-		if (bytes.Index(read_data, []byte("354")) == 0 && after_data_error == false) {
-			// finished
-			break
-		} else {
-			// error
-			error_string += string(read_data) + "\n"
-			// continue gathering error message
-			after_data_error = true
+		if (len(reply_string) > 512 * 30) {
+			// server has returned too many lines
+			// to be considered reasonable
+			return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
 		}
 
 	}
 
-	if (error_string != "") {
-		// error
-		return errors.New("smtp server did not respond with 354 after DATA command, " + error_string), reply_code, nil
+	if (reply_code != 354) {
+		return errors.New("smtp server did not respond with 354 after DATA command, " + reply_string), reply_code, nil
 	}
 
 	buf := bytes.Buffer{}
@@ -3222,22 +3417,28 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 	buf.Write([]byte("\r\n"))
 	buf.Write(outbound_mail.Body)
 
+	reply_string = ""
 	for (true) {
 
 		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		reply_code = smtpReplyCode(read_data)
+		reply_code, is_multiline = smtpReplyCode(read_data)
 
 		if (read_err != nil) {
+			return read_err, reply_code, nil
+		}
+
+		reply_string += string(read_data) + "\n"
+
+		if (is_multiline == false) {
+			// finished
 			break
 		}
 
-		if (bytes.Index(read_data, []byte("250")) == 0) {
-			// finished
-			break
-		} else if (bytes.Index(read_data, []byte("5")) == 0) {
-			// error
-			error_string += string(read_data) + "\n"
+		if (len(reply_string) > 512 * 30) {
+			// server has returned too many lines
+			// to be considered reasonable
+			return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
 		}
 
 	}
@@ -3245,20 +3446,22 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 	conn.Write([]byte("QUIT\r\n"))
 	conn.Close()
 
-	if (error_string == "") {
+	if (reply_code == 250) {
 		return nil, reply_code, buf.Bytes()
 	} else {
 		// return error
-		return errors.New(error_string), reply_code, buf.Bytes()
+		return errors.New(reply_string), reply_code, buf.Bytes()
 	}
 
 }
 
 func smtp_client_read_command_response_line(conn net.Conn) (error, uint64, []byte) {
 
+	// returns once a \r\n sequence is found
+
 	var data []byte
 	var rlen uint64 = 0
-	var max_read_size = 1024 * 1000 * 1000
+	var max_read_size = 512
 	seq := 0
 	for true {
 
