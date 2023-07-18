@@ -358,7 +358,7 @@ func main() {
 
 					} else {
 
-						console_output += "email received by server\n"
+						console_output += "\nemail received by server\n"
 						//fmt.Println(email)
 						//fmt.Println(string(email))
 					}
