@@ -43,7 +43,7 @@ import (
 type mail_from_func func(string, string, string, string, *bool) (bool, string)
 type rcpt_to_func func(string, string, *bool) (bool, string)
 type headers_func func(map[string]string, string, *bool) bool
-type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *bool)
+type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *bool, *string, *[]string)
 type pop3_auth_func func(string, string, string, string) bool
 type pop3_stat_func func(string) (int, int)
 type pop3_list_func func(string) (int, []int, []int)
@@ -182,7 +182,7 @@ func ParseTags(b []byte) (map[string]string, []string) {
 }
 
 // execute and respond to a command
-func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, esmtp_authed *bool, mail_from *string, to_address *string, parse_data *bool, sent_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, esmtp_authed *bool, mail_from *string, rcpt_to_addresses *[]string, parse_data *bool, sent_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
@@ -359,7 +359,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 		//fmt.Printf("rcpt address (between %d and %d): %s\n", i1, i2, s)
 
-		*to_address = string(s)
+		*rcpt_to_addresses = append(*rcpt_to_addresses, string(s))
 
 		var rcpt_to_error_string string
 		*authed, rcpt_to_error_string = rcpt_to_func(string(s), ip, esmtp_authed)
@@ -445,7 +445,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 	parse_data := false
 
 	mail_from := ""
-	to_address := ""
+	var rcpt_to_addresses []string
 
 	login := make([]byte, 0)
 	var parts_headers = make([]map[string]string, 0)
@@ -524,7 +524,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 				if (len(line) > 0) {
 					// do not send an empty line to smtpExecCmd()
-					smtpExecCmd(ip_ac, using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &esmtp_authed, &mail_from, &to_address, &parse_data, &sent_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+					smtpExecCmd(ip_ac, using_tls, conn, tls_config, config, line, &auth_login, &auth_password, &login_status, &authed, &esmtp_authed, &mail_from, &rcpt_to_addresses, &parse_data, &sent_cmds, &login, ip, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 				}
 
 				if (len(smtp_data) + 2 >= len(line) && len(smtp_data) >= 2 && len(line) + 2 <= len(smtp_data)) {
@@ -1376,7 +1376,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 				// full email received
 				// none of the data passed in the pointers should be accessed after this
 				// because it is sent in a pointer to a user level closure of a module
-				full_message_func(&smtp_data, &headers, &parts_headers, &parts, &dkim_valid, &ip, &esmtp_authed)
+				full_message_func(&smtp_data, &headers, &parts_headers, &parts, &dkim_valid, &ip, &esmtp_authed, &mail_from, &rcpt_to_addresses)
 
 				// reset values
 				smtp_data = nil

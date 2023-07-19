@@ -239,7 +239,7 @@ func main() {
 		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
 		return true
 
-	}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, esmtp_authed *bool) {
+	}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, esmtp_authed *bool, mail_from *string, rcpt_to_addresses *[]string) {
 
 		// email_data		raw email data as received (headers and body)
 		// headers		parsed headers
@@ -248,6 +248,8 @@ func main() {
 		// dkim_valid		true if DKIM validated by the domain's public key
 		// ip			ip address of the sending client
 		// esmtp_authed		ESTMP authed status
+		// mail_from		email address sent in MAIL FROM SMTP command
+		// rcpt_to_addresses	email addresses sent in RCPT TO SMTP commands (sometimes used instead of BCC headers)
 
 		//fmt.Println(string((*email_data)))
 		var dkim_string = "false"
@@ -261,35 +263,92 @@ func main() {
 		// send to local domain inboxes
 		var send_addresses []mail.Address
 
-		tf, tf_err := mail.ParseAddress((*headers)["to"])
-		if tf_err == nil {
-			send_addresses = append(send_addresses, *tf)
-		}
+		// add addresses from the RCPT TO SMTP commands
+		for a := range((*rcpt_to_addresses)) {
 
-		// remove the BCC headers
-		var bcc_header = (*headers)["bcc"]
-		delete((*headers), "bcc")
-		var bccs = strings.Split(bcc_header, ",")
-
-		for a := range(bccs) {
-
-			// add each bcc address
-			tf, tf_err := mail.ParseAddress(bccs[a])
-			if tf_err == nil {
-				send_addresses = append(send_addresses, *tf)
+			rcpt_tf, rcpt_tf_err := mail.ParseAddress((*rcpt_to_addresses)[a])
+			if rcpt_tf_err == nil {
+				send_addresses = append(send_addresses, *rcpt_tf)
 			}
 
 		}
 
-		// get the cc addresses
-		var ccs = strings.Split((*headers)["cc"], ",")
+		// add addresses from the to: header
+		var tos = strings.Split((*headers)["to"], ",")
+		for a := range(tos) {
 
+			// add each bcc address
+			tf, tf_err := mail.ParseAddress(tos[a])
+
+			if tf_err == nil {
+
+				already_exists := false
+				for e := range(send_addresses) {
+					if (send_addresses[e] == *tf) {
+						// already in send_addresses
+						already_exists = true
+						break
+					}
+				}
+
+				if (already_exists == false) {
+					send_addresses = append(send_addresses, *tf)
+				}
+
+			}
+
+		}
+
+		// add addresses from the bcc: header
+		var bcc_header = (*headers)["bcc"]
+		// remove the BCC headers to not reveal the bcc addresses
+		delete((*headers), "bcc")
+		var bccs = strings.Split(bcc_header, ",")
+		for a := range(bccs) {
+
+			// add each bcc address
+			tf, tf_err := mail.ParseAddress(bccs[a])
+
+			if tf_err == nil {
+
+				already_exists := false
+				for e := range(send_addresses) {
+					if (send_addresses[e] == *tf) {
+						// already in send_addresses
+						already_exists = true
+						break
+					}
+				}
+
+				if (already_exists == false) {
+					send_addresses = append(send_addresses, *tf)
+				}
+
+			}
+
+		}
+
+		// add addresses from the cc: header
+		var ccs = strings.Split((*headers)["cc"], ",")
 		for a := range(ccs) {
 
 			// add each cc address
 			tf, tf_err := mail.ParseAddress(bccs[a])
 			if tf_err == nil {
-				send_addresses = append(send_addresses, *tf)
+
+				already_exists := false
+				for e := range(send_addresses) {
+					if (send_addresses[e] == *tf) {
+						// already in send_addresses
+						already_exists = true
+						break
+					}
+				}
+
+				if (already_exists == false) {
+					send_addresses = append(send_addresses, *tf)
+				}
+
 			}
 
 		}
@@ -312,7 +371,7 @@ func main() {
 
 			for a := range(send_addresses) {
 
-				if (users[tf.Address] != "") {
+				if (users[send_addresses[a].Address] != "") {
 					// send to local domain
 					console_output += "\nstoring at local domain:\n" + string(*email_data)
 				} else {
