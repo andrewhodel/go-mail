@@ -3193,6 +3193,11 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 
 	if (outbound_mail.RequireTLS == true) {
 
+		if (fmt.Sprintf("%T", conn) != "*tls.Conn") {
+			// tls is not valid
+			return errors.New("smtp server did not provide TLS or STARTTLS"), 0, nil
+		}
+
 		conn_state := conn.(*tls.Conn).ConnectionState()
 		if (conn_state.HandshakeComplete == true) {
 			// tls is valid
