@@ -99,6 +99,7 @@ type OutboundMail struct {
 	DkimExpireSeconds		int
 	Headers				map[string]string
 	FirstSendFailure		time.Time
+	RequireTLS			bool
 }
 
 type Esmtp struct {
@@ -3019,18 +3020,43 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 
 		if (bytes.Index(read_data, []byte("250-")) == 0) {
 			// the server responded with a ESTMP extension
-			// add it to esmtps and read the next command
+			// add it to esmtps
 
 			// get extension name
-			var e = string(bytes.Split(read_data, []byte("250-"))[1])
-			// get extension parts
-			var p = strings.Split(e, " ")
+			var s = bytes.Split(read_data, []byte("250-"))
+			if (len(s) > 1) {
 
-			var supported_extension Esmtp
-			supported_extension.Name = p[0]
-			supported_extension.Parts = p[1:len(p)]
+				var e = string(s[1])
+				// get extension parts
+				var p = strings.Split(e, " ")
 
-			esmtps = append(esmtps, supported_extension)
+				var supported_extension Esmtp
+				supported_extension.Name = p[0]
+				supported_extension.Parts = p[1:len(p)]
+
+				esmtps = append(esmtps, supported_extension)
+
+			}
+
+		} else if (bytes.Index(read_data, []byte("250 ")) == 0) {
+			// there is also an esmtp extension in the line without -
+			// add it to esmtps
+
+			// get extension name
+			var s = bytes.Split(read_data, []byte("250 "))
+			if (len(s) > 1) {
+
+				var e = string(s[1])
+				// get extension parts
+				var p = strings.Split(e, " ")
+
+				var supported_extension Esmtp
+				supported_extension.Name = p[0]
+				supported_extension.Parts = p[1:len(p)]
+
+				esmtps = append(esmtps, supported_extension)
+
+			}
 
 		}
 
@@ -3111,7 +3137,6 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 
 					// OS TLS config
 					tlsconfig = &tls.Config {
-						InsecureSkipVerify: true,
 						ServerName: outbound_mail.ReceivingHost,
 					}
 
@@ -3127,8 +3152,53 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 				// convert tlsConn to a net.Conn type
 				conn = net.Conn(tlsConn)
 
+				// send HELO command and read response
+				conn.Write([]byte("HELO " + outbound_mail.SendingHost + "\r\n"))
+
+				reply_string = ""
+				for (true) {
+
+					read_err, _, read_data = smtp_client_read_command_response_line(conn)
+
+					reply_code, is_multiline = smtpReplyCode(read_data)
+
+					if (read_err != nil) {
+						return read_err, reply_code, nil
+					}
+
+					reply_string += string(read_data) + "\n"
+
+					if (is_multiline == false) {
+						// finished
+						break
+					}
+
+					if (len(reply_string) > 512 * 30) {
+						// server has returned too many lines
+						// to be considered reasonable
+						return errors.New("smtp server sent too many reply lines, " + reply_string), reply_code, nil
+					}
+
+				}
+
+				if (reply_code != 250) {
+					return errors.New("smtp server did not respond with 250 after STARTTLS routine then HELO command, " + reply_string), reply_code, nil
+				}
+
 			}
 
+		}
+
+	}
+
+	if (outbound_mail.RequireTLS == true) {
+
+		conn_state := conn.(*tls.Conn).ConnectionState()
+		if (conn_state.HandshakeComplete == true) {
+			// tls is valid
+			fmt.Println("tls valid")
+		} else {
+			return errors.New("smtp server did not provide TLS or STARTTLS"), 0, nil
 		}
 
 	}
