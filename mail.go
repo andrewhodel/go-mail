@@ -3196,7 +3196,6 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 		conn_state := conn.(*tls.Conn).ConnectionState()
 		if (conn_state.HandshakeComplete == true) {
 			// tls is valid
-			fmt.Println("tls valid")
 		} else {
 			return errors.New("smtp server did not provide TLS or STARTTLS"), 0, nil
 		}
