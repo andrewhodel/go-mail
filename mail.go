@@ -3047,6 +3047,10 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 
 	}
 
+	if (reply_code != 250) {
+		return errors.New("smtp server did not respond with 250 after EHLO command, " + reply_string), reply_code, nil
+	}
+
 	if (len(esmtps) > 0) {
 
 		//fmt.Println("SMTP Extensions Found:", esmtps)
