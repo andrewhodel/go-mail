@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/url"
 	"encoding/pem"
+	"encoding/base64"
 	"errors"
 	"crypto/x509"
 )
@@ -381,14 +382,14 @@ func handle_http_request(conn net.Conn) {
 		} else {
 
 			// send the email
-			//fmt.Printf("request to send email: %+V\n", email_json)
+			fmt.Printf("request to send email: %+V\n", email_json)
 
 			var response = []byte("{}")
 
 			// send via SMTP
 			var om gomail.OutboundMail
 			om.DkimPrivateKey = pk
-			om.DkimDomain = "aaaaaaaaaaaaaaa._domainkey.domain.tld"
+			om.DkimDomain = "fgkhdgsfgdds._domainkey.xyzbots.com"
 
 			if (email_json.Html == true) {
 				// set the content-type header in the email to text/html
@@ -399,7 +400,7 @@ func handle_http_request(conn net.Conn) {
 			parsed_from, parsed_from_err := mail.ParseAddress(email_json.From)
 			if (parsed_from_err != nil) {
 
-				response = []byte("{\"error\": \"" + err.Error() + "\"}")
+				response = []byte("{\"error\": \"" + base64.StdEncoding.EncodeToString([]byte(err.Error())) + "\"}")
 
 			} else {
 
@@ -438,9 +439,9 @@ func handle_http_request(conn net.Conn) {
 				err, return_code, _ := gomail.SendMail(om)
 
 				if (err != nil) {
-					response = []byte("{\"error\": \"" + err.Error() + "\"}")
+					response = []byte("{\"error\": \"" + base64.StdEncoding.EncodeToString([]byte(err.Error())) + "\"}")
 				} else {
-					response = []byte("{\"smtp_response\": \"email received by SMTP server with reply code: " + strconv.Itoa(return_code) + ".\"}")
+					response = []byte("{\"smtp_response\": \"" + base64.StdEncoding.EncodeToString([]byte("email received by SMTP server with reply code: " + strconv.Itoa(return_code) + ".")) + "\"}")
 					//fmt.Println(email)
 					//fmt.Println(string(email))
 				}
