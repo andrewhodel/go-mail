@@ -268,7 +268,20 @@ func main() {
 
 			rcpt_tf, rcpt_tf_err := mail.ParseAddress((*rcpt_to_addresses)[a])
 			if rcpt_tf_err == nil {
-				send_addresses = append(send_addresses, *rcpt_tf)
+
+				already_exists := false
+				for e := range(send_addresses) {
+					if (send_addresses[e] == *rcpt_tf) {
+						// already in send_addresses
+						already_exists = true
+						break
+					}
+				}
+
+				if (already_exists == false) {
+					send_addresses = append(send_addresses, *rcpt_tf)
+				}
+
 			}
 
 		}
