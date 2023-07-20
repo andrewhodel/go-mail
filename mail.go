@@ -2947,9 +2947,10 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 		if (outbound_mail.ReceivingHostTlsConfig == nil) {
 
 			// OS TLS config
+			// read this - https://github.com/golang/go/issues/61483
 			tlsconfig = &tls.Config {
-				InsecureSkipVerify: false,
 				ServerName: outbound_mail.ReceivingHost,
+				ClientAuth: tls.RequireAndVerifyClientCert,
 			}
 
 		} else {
@@ -3136,8 +3137,10 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 				if (outbound_mail.ReceivingHostTlsConfig == nil) {
 
 					// OS TLS config
+					// read this - https://github.com/golang/go/issues/61483
 					tlsconfig = &tls.Config {
 						ServerName: outbound_mail.ReceivingHost,
+						ClientAuth: tls.RequireAndVerifyClientCert,
 					}
 
 				} else {
