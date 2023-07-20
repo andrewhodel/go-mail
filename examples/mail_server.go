@@ -398,7 +398,7 @@ func main() {
 					// send via SMTP
 					var om gomail.OutboundMail
 					om.DkimPrivateKey = pk
-					om.DkimDomain = "hjdfjhjgdfh._domainkey.ispapp.co"
+					om.DkimDomain = "aaaaaaaaaaaaaaaaaa._domainkey.domain.tld"
 					om.From = *pf
 					om.Subj = (*headers)["subject"]
 					om.Body = (*email_data)[h_split_pos:end_split_pos]
