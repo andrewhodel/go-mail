@@ -312,6 +312,12 @@ func handle_http_request(conn net.Conn) {
 
 	}
 
+	// flag as authenticated in go-ip-ac
+	var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+        _ = port
+        _ = iperr
+        ipac.ModifyAuth(&ip_ac, 2, ip)
+
 	if (read_body_data == true) {
 
 		// read body data
