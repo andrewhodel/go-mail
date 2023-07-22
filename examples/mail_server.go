@@ -195,11 +195,13 @@ func main() {
 			return true, ""
 		}
 
-		// only allow esmtp_authed == true
+		// if only allowing esmtp_authed clients
 		// the 2nd argument can be set to something other than the default "221 not authorized"
 		// like "221 your IP address is spamming too much, 5000 emails in the last 15 seconds"
 		// like "221 your domain is spamming too much, 5000 emails in the last 15 seconds"
-		return false, ""
+
+		// allow to next closure as this may be a local inbox
+		return true, ""
 
 	}, func(to_address string, ip string, esmtp_authed *bool) (bool, string) {
 

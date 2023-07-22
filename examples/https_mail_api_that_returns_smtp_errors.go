@@ -388,7 +388,7 @@ func handle_http_request(conn net.Conn) {
 		} else {
 
 			// send the email
-			fmt.Printf("request to send email: %+V\n", email_json)
+			//fmt.Printf("request to send email: %+V\n", email_json)
 
 			var response = []byte("{}")
 
