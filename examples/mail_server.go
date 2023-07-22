@@ -259,6 +259,7 @@ func main() {
 			dkim_string = "true"
 		}
 		var console_output = "full email received, length: " + strconv.Itoa(len(*email_data)) + "\nDKIM valid: " + dkim_string + "\nIP Address: " + *ip
+		//console_output += "\n" + string((*email_data)) + "\nMAIL FROM: " + (*mail_from) + "\nRCPT TO: " + fmt.Sprintf("%+v", (*rcpt_to_addresses))
 
 		// get list of each address to send to
 		// send to external servers
