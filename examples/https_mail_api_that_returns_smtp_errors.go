@@ -39,6 +39,7 @@ func main() {
 
 	pk = pk_data
 
+	ip_ac.BlockAfterNewConnections = 1800
 	ipac.Init(&ip_ac)
 
 	// read the configuration file
