@@ -81,25 +81,27 @@ type Email struct {
 }
 
 type OutboundMail struct {
-	SendingHost			string
-	Username			string
-	Password			string
-	ReceivingHostTlsConfig		*tls.Config
-	ReceivingHost			string
-	Port				int
-	From				mail.Address
-	To				[]mail.Address
-	Cc				[]mail.Address
-	Bcc				[]mail.Address
-	Subj				string
-	Body				[]byte
-	DkimPrivateKey			[]byte
-	DkimDomain			string
-	DkimSigningAlgo			string
-	DkimExpireSeconds		int
-	Headers				map[string]string
-	FirstSendFailure		time.Time
-	RequireTLS			bool
+	SendingHost				string
+	Username				string
+	Password				string
+	ReceivingHostTlsConfig			*tls.Config
+	ReceivingHost				string
+	Port					int
+	From					mail.Address
+	To					[]mail.Address
+	Cc					[]mail.Address
+	Bcc					[]mail.Address
+	Subj					string
+	Body					[]byte
+	DkimPrivateKey				[]byte
+	DkimDomain				string
+	DkimSigningAlgo				string
+	DkimExpireSeconds			int
+	Headers					map[string]string
+	FirstSendFailure			time.Time
+	RequireTLS				bool
+	RequireServerNameOfReceivingAddresses	bool
+	STARTTLS_ServerName			string
 }
 
 type Esmtp struct {
@@ -2927,6 +2929,104 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 	// Connect to the SMTP Server
 	servername := outbound_mail.ReceivingHost + ":" + strconv.FormatInt(int64(outbound_mail.Port), 10)
 
+	// the server may be using STARTTLS and a different TLS certificate with the valid servername regardless of ReceivingHost
+	var all_same_receiving_domain = true
+	var servername_from_receiving_addresses = ""
+
+	for i := range outbound_mail.To {
+
+		a := outbound_mail.To[i].Address
+
+		s := strings.Split(a, "@")
+
+		if (servername_from_receiving_addresses != "" && servername_from_receiving_addresses != s[1]) {
+			// all email addresses are not the same domain
+			all_same_receiving_domain = false
+		}
+
+		// set this from all receiving email addresses as those must be the same with RequireServerNameOfReceivingAddresses
+		servername_from_receiving_addresses = s[1]
+
+	}
+
+	for i := range outbound_mail.Cc {
+
+		a := outbound_mail.Cc[i].Address
+
+		s := strings.Split(a, "@")
+
+		if (servername_from_receiving_addresses != "" && servername_from_receiving_addresses != s[1]) {
+			// all email addresses are not the same domain
+			all_same_receiving_domain = false
+		}
+
+		// set this from all receiving email addresses as those must be the same with RequireServerNameOfReceivingAddresses
+		servername_from_receiving_addresses = s[1]
+
+	}
+
+	for i := range outbound_mail.Bcc {
+
+		a := outbound_mail.Bcc[i].Address
+
+		s := strings.Split(a, "@")
+
+		if (servername_from_receiving_addresses != "" && servername_from_receiving_addresses != s[1]) {
+			// all email addresses are not the same domain
+			all_same_receiving_domain = false
+		}
+
+		// set this from all receiving email addresses as those must be the same with RequireServerNameOfReceivingAddresses
+		servername_from_receiving_addresses = s[1]
+
+	}
+
+	if (outbound_mail.RequireServerNameOfReceivingAddresses == true) {
+
+		if (outbound_mail.ReceivingHostTlsConfig != nil) {
+
+			// the ServerName can be set in ReceivingHostTlsConfig
+			// it is not possible to use RequireServerNameOfReceivingAddresses and ReceivingHostTlsConfig with the same email
+			return errors.New("it is not possible to use RequireServerNameOfReceivingAddresses and ReceivingHostTlsConfig with the same email because ServerName can be set in ReceivingHostTlsConfig"), 0, nil
+
+		}
+
+		if (all_same_receiving_domain == true) {
+			// all the receiving email addresses are the same domain
+
+			if (servername_from_receiving_addresses == outbound_mail.ReceivingHost) {
+
+				// the email addresses domain matches ReceivingHost exactly
+				// keep the servername from ReceivingHost
+
+			} else if (strings.Index(outbound_mail.ReceivingHost, servername_from_receiving_addresses) == len(outbound_mail.ReceivingHost) - len(servername_from_receiving_addresses)) {
+
+				// the email addresses domain matches ReceivingHost's major domain (*.domain.tld) regardless of having a subdomain
+				// keep the servername from ReceivingHost
+
+				// allowing hosts that are subdomains of the receiving domain and using TLS to be validated
+
+				// also allowing 3rd party hosting of email by setting the MX record of domain.tld to unused-subdomain.domain.tld and creating an A record of unused-subdomain.domain.tld
+				// with the IP address of the 3rd party host, then providing the third party host with the TLS certificate of unused-subdomain.domain.tld
+
+			} else {
+
+				// use the servername from the receiving email addresses if it does not match ReceivingHost or a subdomain of ReceivingHost
+				// this will work with any DNS MX record while STARTTLS returns the valid TLS certificate with ServerName of the receiving email addresses
+				outbound_mail.STARTTLS_ServerName = servername_from_receiving_addresses
+
+				// allowing 3rd party hosting of email by providing SMTP and requiring STARTTLS that uses the TLS certificate and servername of the receiving email addresses
+
+			}
+
+		} else if (all_same_receiving_domain == false) {
+
+			return errors.New("Receiving email addresses (TO, CC and BCC) must all be the same if RequireServerNameOfReceivingAddresses is true"), 0, nil
+
+		}
+
+	}
+
 	var conn net.Conn
 	var tlsconfig *tls.Config
 
@@ -3137,10 +3237,23 @@ func SendMail(outbound_mail OutboundMail) (error, int, []byte) {
 				if (outbound_mail.ReceivingHostTlsConfig == nil) {
 
 					// OS TLS config
-					// read this - https://github.com/golang/go/issues/61483
-					tlsconfig = &tls.Config {
-						ServerName: outbound_mail.ReceivingHost,
-						ClientAuth: tls.RequireAndVerifyClientCert,
+					if (outbound_mail.STARTTLS_ServerName == "") {
+
+						// use ReceivingHost as ServerName
+						tlsconfig = &tls.Config {
+							ServerName: outbound_mail.ReceivingHost,
+							ClientAuth: tls.RequireAndVerifyClientCert,
+						}
+
+					} else {
+
+						// use STARTTLS_ServerName as ServerName
+						// this allows an SMTP server to securely provide SMTP for other domains
+						tlsconfig = &tls.Config {
+							ServerName: outbound_mail.STARTTLS_ServerName,
+							ClientAuth: tls.RequireAndVerifyClientCert,
+						}
+
 					}
 
 				} else {
