@@ -45,13 +45,13 @@ func main() {
 	om.To = to
 
 	// the data as sent to the server is in em
-	err, em := gomail.SendMail(om)
+	err, return_code, em := gomail.SendMail(om)
 	_ = em
 
 	if (err != nil) {
 		fmt.Println("gomail.SendMail() error:", err)
 	} else {
-		fmt.Println("email received by server")
+		fmt.Println("email received by server", return_code, em)
 	}
 
 }
