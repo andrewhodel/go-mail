@@ -928,8 +928,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 												if (canon_h[dd] == canon_h[d] && dd != d) {
 													// remove duplicate value
 													//fmt.Println("remove duplicate", dd, canon_h[dd])
-													copy(canon_h[dd:], canon_h[dd+1:])
-													canon_h = canon_h[:len(canon_h)-1]
+													canon_h = append(canon_h[dd:], canon_h[:dd+1]...)
 												}
 											}
 
