@@ -189,11 +189,11 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
-	if (!*authed) {
-		*sent_cmds += 1
+	if (!(*authed)) {
+		(*sent_cmds) += 1
 	}
 
-	if (*login_status == 1) {
+	if ((*login_status) == 1) {
 
 		// decode base64 encoded password
 		dec, dec_err := base64.StdEncoding.DecodeString(string(c))
@@ -204,19 +204,19 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 			var null_delimited_parts = bytes.Split(dec, []byte{0})
 
 			if (len(null_delimited_parts) == 1) {
-				*auth_password = string(dec)
+				(*auth_password) = string(dec)
 			} else if (len(null_delimited_parts) == 2) {
-				*auth_login = string(null_delimited_parts[0])
-				*auth_password = string(null_delimited_parts[1])
+				(*auth_login) = string(null_delimited_parts[0])
+				(*auth_password) = string(null_delimited_parts[1])
 			} else if (len(null_delimited_parts) == 3) {
-				*auth_login = string(null_delimited_parts[0])
-				*auth_password = string(null_delimited_parts[2])
+				(*auth_login) = string(null_delimited_parts[0])
+				(*auth_password) = string(null_delimited_parts[2])
 			}
 
 		}
 
 		// set login_status to 0
-		*login_status = 0
+		(*login_status) = 0
 
 		// send a 235 response
 		conn.Write([]byte("235\r\n"))
@@ -285,13 +285,13 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 				var null_delimited_parts = bytes.Split(dec, []byte{0})
 
 				if (len(null_delimited_parts) == 1) {
-					*auth_password = string(dec)
+					(*auth_password) = string(dec)
 				} else if (len(null_delimited_parts) == 2) {
-					*auth_login = string(null_delimited_parts[0])
-					*auth_password = string(null_delimited_parts[1])
+					(*auth_login) = string(null_delimited_parts[0])
+					(*auth_password) = string(null_delimited_parts[1])
 				} else if (len(null_delimited_parts) == 3) {
-					*auth_login = string(null_delimited_parts[0])
-					*auth_password = string(null_delimited_parts[2])
+					(*auth_login) = string(null_delimited_parts[0])
+					(*auth_password) = string(null_delimited_parts[2])
 				}
 
 			}
@@ -304,7 +304,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 			// password sent as next command (on next line)
 
 			// set login_status to 1 to parse that next line
-			*login_status = 1
+			(*login_status) = 1
 
 			// respond with 334
 			conn.Write([]byte("334\r\n"))
@@ -324,9 +324,9 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 		//fmt.Printf("send address (between %d and %d): %s\n", i1, i2, s)
 
-		*mail_from = string(s)
+		(*mail_from) = string(s)
 
-		var mail_from_authed, mail_from_error_string = mail_from_func(string(s), ip, *auth_login, *auth_password, esmtp_authed)
+		var mail_from_authed, mail_from_error_string = mail_from_func(string(s), ip, (*auth_login), (*auth_password), esmtp_authed)
 
 		if (mail_from_authed == false) {
 
@@ -362,12 +362,12 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 		//fmt.Printf("rcpt address (between %d and %d): %s\n", i1, i2, s)
 
-		*rcpt_to_addresses = append(*rcpt_to_addresses, string(s))
+		(*rcpt_to_addresses) = append((*rcpt_to_addresses), string(s))
 
 		var rcpt_to_error_string string
-		*authed, rcpt_to_error_string = rcpt_to_func(string(s), ip, esmtp_authed)
+		(*authed), rcpt_to_error_string = rcpt_to_func(string(s), ip, esmtp_authed)
 
-		if (*authed == true) {
+		if ((*authed) == true) {
 			conn.Write([]byte("250 OK\r\n"))
 		} else {
 
@@ -388,12 +388,12 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 		//fmt.Printf("DATA command\n")
 
-		if (*authed) {
+		if ((*authed)) {
 
 			// valid auth
 			ipac.ModifyAuth(&ip_ac, 2, ip)
 
-			*parse_data = true
+			(*parse_data) = true
 			conn.Write([]byte("354 End data with <CR><LF>.<CR><LF>\r\n"))
 			//fmt.Println("DATA received, replied with 354")
 		} else {
@@ -1639,7 +1639,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 			conn.Write([]byte("-ERR invalid USER command\r\n"))
 		} else {
 			// store the username
-			*auth_login = string(s[1])
+			(*auth_login) = string(s[1])
 			// respond with request for password
 			conn.Write([]byte("+OK try PASS\r\n"))
 		}
@@ -1653,10 +1653,10 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 			conn.Write([]byte("-ERR invalid PASS command\r\n"))
 		} else {
 			// validate the login credentials
-			*auth_password = string(s[1])
-			*authed = pop3_auth_func(ip, *auth_login, *auth_password, "")
+			(*auth_password) = string(s[1])
+			(*authed) = pop3_auth_func(ip, (*auth_login), (*auth_password), "")
 
-			if (*authed == true) {
+			if ((*authed) == true) {
 
 				// invalid auth
 				ipac.ModifyAuth(&ip_ac, 2, ip)
@@ -1689,13 +1689,13 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 			conn.Write([]byte("-ERR invalid APOP command\r\n"))
 		} else {
 
-			*auth_login = string(s[1])
-			*auth_password = string(s[2])
+			(*auth_login) = string(s[1])
+			(*auth_password) = string(s[2])
 
 			// validate credentials with closure
-			*authed = pop3_auth_func(ip, *auth_login, *auth_password, ss)
+			(*authed) = pop3_auth_func(ip, (*auth_login), (*auth_password), ss)
 
-			if (*authed == true) {
+			if ((*authed) == true) {
 
 				//fmt.Println("POP3 APOP authenticated")
 
@@ -1723,13 +1723,13 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 		// respond with capabilities line by line, ended with a .
 		conn.Write([]byte("+OK\r\nCAPA\r\nAPOP\r\nUSER\r\n.\r\n"))
 
-	} else if (bytes.Index(c, []byte("STAT")) == 0 && *authed == true) {
+	} else if (bytes.Index(c, []byte("STAT")) == 0 && (*authed) == true) {
 
 		// respond with number of messages and total size of all messages in bytes
-		n_messages, messages_size := pop3_stat_func(*auth_login)
+		n_messages, messages_size := pop3_stat_func((*auth_login))
 		conn.Write([]byte("+OK " + strconv.Itoa(n_messages) + " " + strconv.Itoa(messages_size) + "\r\n"))
 
-	} else if (bytes.Index(c, []byte("LIST")) == 0 && *authed == true) {
+	} else if (bytes.Index(c, []byte("LIST")) == 0 && (*authed) == true) {
 
 		// returns a list of all messages in the inbox
 		// each with the message identifier (must be whole numbers starting with 1) and the size
@@ -1739,7 +1739,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 		// .
 		//
 		// all message ids are strings to allow larger than the uint64 maximum value as message ids
-		total_size, msg_ids, msg_lengths := pop3_list_func(*auth_login)
+		total_size, msg_ids, msg_lengths := pop3_list_func((*auth_login))
 
 		if (len(msg_ids) != len(msg_lengths)) {
 			fmt.Println("POP3 LIST response []string values for message identifiers and lengths are not the same length")
@@ -1758,7 +1758,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 
 		conn.Write([]byte(s))
 
-	} else if (bytes.Index(c, []byte("RETR")) == 0 && *authed == true) {
+	} else if (bytes.Index(c, []byte("RETR")) == 0 && (*authed) == true) {
 
 		//fmt.Println("RETR", string(c))
 
@@ -1767,20 +1767,20 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 		if (len(s) == 2) {
 			// send message
 			mid, _ := strconv.Atoi(string(s[1]))
-			msg := pop3_retr_func(*auth_login, mid)
+			msg := pop3_retr_func((*auth_login), mid)
 			conn.Write([]byte("+OK " + strconv.FormatUint(uint64(len(msg)), 10) + " octets\r\n" + msg + "\r\n.\r\n"))
 		} else {
 			conn.Write([]byte("-ERR invalid RETR command\r\n"))
 		}
 
-	} else if (bytes.Index(c, []byte("DELE")) == 0 && *authed == true) {
+	} else if (bytes.Index(c, []byte("DELE")) == 0 && (*authed) == true) {
 
 		// DELE ID
 		s := bytes.Split(c, []byte(" "))
 		if (len(s) == 2) {
 			// delete message N
 			mid, _ := strconv.Atoi(string(s[1]))
-			msg_deleted, delete_error := pop3_dele_func(*auth_login, mid)
+			msg_deleted, delete_error := pop3_dele_func((*auth_login), mid)
 			if (msg_deleted == true) {
 				conn.Write([]byte("+OK deleted\r\n"))
 			} else {
@@ -1795,7 +1795,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 		// this is similar to a keep-alive
 		conn.Write([]byte("+OK\r\n"))
 
-	} else if (bytes.Index(c, []byte("RSET")) == 0 && *authed == true) {
+	} else if (bytes.Index(c, []byte("RSET")) == 0 && (*authed) == true) {
 
 		// reset all pending delete operations
 		conn.Write([]byte("+OK\r\n"))
@@ -2028,13 +2028,13 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 			s[2] = bytes.TrimRight(s[2], "\"")
 
 			// store the credentials
-			*auth_login = string(s[1])
-			*auth_password = string(s[2])
+			(*auth_login) = string(s[1])
+			(*auth_password) = string(s[2])
 
 			// validate credentials with closure
-			*authed = imap4_auth_func(ip, *auth_login, *auth_password)
+			(*authed) = imap4_auth_func(ip, (*auth_login), (*auth_password))
 
-			if (*authed == true) {
+			if ((*authed) == true) {
 
 				//fmt.Println("IMAP4 authenticated")
 
@@ -2126,7 +2126,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 			mailbox_name = "INBOX" + mailbox_name[5:len(mailbox_name)]
 		}
 
-		list_response := imap4_list_func(*auth_login, flags, reference, mailbox_name)
+		list_response := imap4_list_func((*auth_login), flags, reference, mailbox_name)
 
 		for l := range(list_response) {
 			conn.Write([]byte(string(list_response[l]) + "\r\n"))
@@ -2171,7 +2171,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		// count of unseen messages
 		// first unseen message id
 		// uid validity string (this is forever unique to the mailbox and must increment if the mailbox is deleted)
-		total_messages, flags, recent_messages, first_unseen_message_id, uid_validity := imap4_select_func(*auth_login, string(c))
+		total_messages, flags, recent_messages, first_unseen_message_id, uid_validity := imap4_select_func((*auth_login), string(c))
 
 		flags_string := ""
 		for f := range(flags) {
@@ -2191,7 +2191,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 	} else if (bytes.Index(upper_c, []byte("SEARCH")) == 0) {
 
-		mids := imap4_search_func(*auth_login, string(c))
+		mids := imap4_search_func((*auth_login), string(c))
 
 		// required by many IMAP4 clients
 		// return list of message ids matching the search query
@@ -2286,7 +2286,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 		}
 
 		// returns []Email
-		messages := imap4_fetch_func(*auth_login, seq_set, item_names)
+		messages := imap4_fetch_func((*auth_login), seq_set, item_names)
 
 		// parse messages and send the data per the IMAP4 protocol
 
