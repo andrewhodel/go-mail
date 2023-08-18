@@ -282,7 +282,7 @@ func main() {
 				}
 
 				if (already_exists == false) {
-					send_addresses = append(send_addresses, *rcpt_tf)
+					send_addresses = append(send_addresses, (*rcpt_tf))
 				}
 
 			}
@@ -308,7 +308,7 @@ func main() {
 				}
 
 				if (already_exists == false) {
-					send_addresses = append(send_addresses, *tf)
+					send_addresses = append(send_addresses, (*tf))
 				}
 
 			}
@@ -337,7 +337,7 @@ func main() {
 				}
 
 				if (already_exists == false) {
-					send_addresses = append(send_addresses, *tf)
+					send_addresses = append(send_addresses, (*tf))
 				}
 
 			}
@@ -362,7 +362,7 @@ func main() {
 				}
 
 				if (already_exists == false) {
-					send_addresses = append(send_addresses, *tf)
+					send_addresses = append(send_addresses, (*tf))
 				}
 
 			}
@@ -402,7 +402,7 @@ func main() {
 					var om gomail.OutboundMail
 					om.DkimPrivateKey = pk
 					om.DkimDomain = "aaaaaaaaaaaaaaaaaa._domainkey.domain.tld"
-					om.From = *pf
+					om.From = (*pf)
 					om.Subj = (*headers)["subject"]
 					om.Body = (*email_data)[h_split_pos:end_split_pos]
 					// email will not send unless the server provides TLS or STARTTLS

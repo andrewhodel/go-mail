@@ -428,7 +428,7 @@ func handle_http_request(conn net.Conn) {
 
 						already_exists := false
 						for e := range(om.To) {
-							if (om.To[e] == *tf) {
+							if (om.To[e] == (*tf)) {
 								// already in send_addresses
 								already_exists = true
 								break
@@ -436,7 +436,7 @@ func handle_http_request(conn net.Conn) {
 						}
 
 						if (already_exists == false) {
-							om.To = append(om.To, *tf)
+							om.To = append(om.To, (*tf))
 						}
 
 					}
