@@ -191,7 +191,7 @@ func main() {
 		if (from_address == "" || auth_password == "") {
 		} else if (users[from_address] == auth_password) {
 			// authenticated
-			*esmtp_authed = true
+			(*esmtp_authed) = true
 			return true, ""
 		}
 
@@ -215,7 +215,7 @@ func main() {
 		// return true if allowed
 		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
 
-		if (*esmtp_authed == true) {
+		if ((*esmtp_authed) == true) {
 			// allow sending emails to other servers if the session is esmtp authenticated
 			return true, ""
 		} else if (users[to_address] != "") {
@@ -255,10 +255,10 @@ func main() {
 
 		//fmt.Println(string((*email_data)))
 		var dkim_string = "false"
-		if (*dkim_valid == true) {
+		if ((*dkim_valid) == true) {
 			dkim_string = "true"
 		}
-		var console_output = "full email received, length: " + strconv.Itoa(len(*email_data)) + "\nDKIM valid: " + dkim_string + "\nIP Address: " + *ip
+		var console_output = "full email received, length: " + strconv.Itoa(len((*email_data))) + "\nDKIM valid: " + dkim_string + "\nIP Address: " + (*ip)
 		//console_output += "\n" + string((*email_data)) + "\nMAIL FROM: " + (*mail_from) + "\nRCPT TO: " + fmt.Sprintf("%+v", (*rcpt_to_addresses))
 
 		// get list of each address to send to
@@ -392,7 +392,7 @@ func main() {
 					console_output += "\nstoring at local domain:\n" + string(*email_data)
 				} else {
 
-					if (*esmtp_authed == false) {
+					if ((*esmtp_authed) == false) {
 						// never send to external domains unless esmtp authed
 						console_output += "\nnot sending to external domain, not esmtp authed"
 						continue
