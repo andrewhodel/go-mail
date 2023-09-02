@@ -609,6 +609,8 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 					i = i + 1
 
+					//fmt.Println(i, len(smtp_data), data_block_end)
+
 					if (i >= len(smtp_data)) {
 						break
 					}
@@ -642,6 +644,8 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 							}
 
 							//fmt.Printf("email body or new block start at %d\n", i)
+							//fmt.Println("validate_dkim", validate_dkim)
+							//fmt.Println("dkim_done", dkim_done)
 
 							// skip the newline
 							i = i + 1
@@ -927,16 +931,14 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 											for dd := len(canon_h)-1; dd >= 0; dd-- {
 												if (canon_h[dd] == canon_h[d] && dd != d) {
 													// remove duplicate value
-													//fmt.Println("remove duplicate", dd, canon_h[dd])
-													canon_h = append(canon_h[dd:], canon_h[:dd+1]...)
+													//fmt.Println("remove duplicate", dd, canon_h[dd], len(canon_h))
+													canon_h = append(canon_h[:dd], canon_h[dd+1:]...)
 												}
 											}
 
 											d += 1
 
 										}
-
-										//fmt.Println("header fields to be canonicalized", canon_h)
 
 										var canonicalized_header_string = ""
 
@@ -1008,6 +1010,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 												dkim_valid = true
 
 											} else {
+												//fmt.Println("DKIM validation error, canonicalized headers hash did not equal to the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())")
 												headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(canonicalized headers hash did not equal the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())"
 											}
 										}
@@ -1015,6 +1018,8 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 									}
 
 								}
+
+								//fmt.Println("finished DKIM parse attempt, dkim_valid=", dkim_valid)
 
 							}
 
@@ -1364,6 +1369,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 				// write 250 OK
 				conn.Write([]byte("250 OK\r\n"))
+				fmt.Println("finished parsing DATA and wrote 250 OK to SMTP client")
 
 				// now the client may send another email or disconnect
 
