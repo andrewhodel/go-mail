@@ -494,8 +494,11 @@ func main() {
 		// POP3 treats the mailbox as a single store, and has no concept of folders
 		for mb := range(mailboxes[auth_login]) {
 			var mailbox = mailboxes[auth_login][mb]
-			total_messages += mailbox.LastMessageId
-			total_size += mailbox.TotalSize
+			if (mailbox.Name == "INBOX") {
+				total_messages += mailbox.LastMessageId
+				total_size += mailbox.TotalSize
+				break
+			}
 		}
 		mailboxes_mutex.Unlock()
 
@@ -551,6 +554,7 @@ func main() {
 					h += k + ": " + v + "\r\n"
 				}
 				h += "\r\n" + string(email.Body)
+
 				break
 			}
 		}
@@ -571,9 +575,23 @@ func main() {
 		message_store_mutex.Lock()
 		for m := range(message_store[auth_login]) {
 			if (message_store[auth_login][m].Uid == msg_id) {
+
+				mailboxes_mutex.Lock()
+				// update the mailbox
+				for mb := range(mailboxes[auth_login]) {
+					var mailbox = mailboxes[auth_login][mb]
+					if (mailbox.Name == "INBOX") {
+						mailboxes[auth_login][mb].LastMessageId -= 1
+						mailboxes[auth_login][mb].TotalSize -= message_store[auth_login][m].Rfc822Size
+						break
+					}
+				}
+				mailboxes_mutex.Unlock()
+
 				// delete the message
-				message_store[auth_login] = nil
+				message_store[auth_login] = append(message_store[auth_login][:m], message_store[auth_login][m+1:]...)
 				deleted = true
+
 				break
 			}
 		}
