@@ -693,17 +693,17 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 								if (dkim_expired == true) {
 									//fmt.Println("DKIM header is expired")
-									headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(header is expired)"
+									headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(header is expired)"
 								} else if (dkim_hp["a"] != "rsa-sha256") {
 									//fmt.Println("unsupported DKIM signing algorithm", dkim_hp["a"])
-									headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(unsupported signing algorithm)"
+									headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(unsupported signing algorithm)"
 
 								} else {
 
 									if (dkim_hp["d"] != valid_domain_1 && dkim_hp["d"] != valid_domain_2) {
 										// the d= tag value (domain specified in the DKIM header) is not the same domain as the reply-to address
 										//fmt.Println("DKIM d= domain", dkim_hp["d"], "does not match the from address", headers["from"], "or the MAIL FROM address", mail_from)
-										headers["dkim-validation-warnings"] = headers["dkim-validation-warnings"] + "(d= domain does not match the from header domain or the SMTP MAIL FROM domain)"
+										headers["go-mail-dkim-validation-warnings"] = headers["go-mail-dkim-validation-warnings"] + "(d= domain does not match the from header domain or the SMTP MAIL FROM domain)"
 									}
 
 									// finish parsing the DKIM headers
@@ -884,7 +884,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 										fmt.Println("canonicalized_body_hash_base64", canonicalized_body_hash_base64)
 										*/
 
-										headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(canonicalized body hash encoded as base64 does not equal the bh= tag value)"
+										headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(canonicalized body hash encoded as base64 does not equal the bh= tag value)"
 
 									} else {
 
@@ -1008,10 +1008,11 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 												// the dkim data is valid
 												dkim_valid = true
+												headers["go-mail-dkim-validation"] = "(dkim validated by go-mail at time of reciept)"
 
 											} else {
 												//fmt.Println("DKIM validation error, canonicalized headers hash did not equal to the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())")
-												headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(canonicalized headers hash did not equal the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())"
+												headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(canonicalized headers hash did not equal the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())"
 											}
 										}
 
@@ -1345,7 +1346,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 											real_headers = append(real_headers, string(header_name))
 
 										} else {
-											headers["dkim-validation-errors"] = headers["dkim-validation-errors"] + "(DNS TXT record not found " + query_domain + ")"
+											headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(DNS TXT record not found " + query_domain + ")"
 										}
 
 									}
