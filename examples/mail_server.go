@@ -49,44 +49,16 @@ func main() {
 	// initialize the message store
 	message_store = make(map[string] []gomail.Email)
 
-	var one gomail.Email
-	var oneh map[string]string
-	oneh = make(map[string] string)
-	oneh["subject"] = "message one"
-	oneh["date"] = "Thu, 27 Jun 2023 08:29:16 -0700"
-	oneh["to"] = "andrew@xyzbots.com"
-	oneh["from"] = "andrewhodel@gmail.com"
-	oneh["message-id"] = "20230623044816.85E937380062@gmail.com"
-	one.Headers = oneh
-	//one.Flags = []string{"\\Recent"}
-	one.Uid = 1
-	one.InternalDate = time.Now()
-	one.Rfc822Size = 1000
-	one.Mailbox = "INBOX"
-	one.Body = []byte("data of body")
-	message_store["andrew@xyzbots.com"] = append(message_store["andrew@xyzbots.com"], one)
-
-	var two gomail.Email
-	var twoh map[string]string
-	twoh = make(map[string] string)
-	twoh["subject"] = "message two"
-	twoh["date"] = "Thu, 27 Jun 2023 08:29:16 -0700"
-	twoh["to"] = "andrew@xyzbots.com"
-	twoh["from"] = "andrewhodel@gmail.com"
-	twoh["message-id"] = "20230623044816.85E737380011@gmail.com"
-	two.Headers = twoh
-	//two.Flags = []string{"\\Recent"}
-	two.Uid = 2
-	two.InternalDate = time.Now()
-	two.Rfc822Size = 1000
-	two.Mailbox = "INBOX"
-	two.Body = []byte("data of body")
-	message_store["andrew@xyzbots.com"] = append(message_store["andrew@xyzbots.com"], two)
-
 	// initialize the mailboxes
 	mailboxes = make(map[string] []Mailbox)
 	for a := range(users) {
 		emails := message_store[a]
+
+		fmt.Println("creating mailboxes for user", a)
+
+		// create the INBOX mailbox for each account
+		fmt.Println("creating mailbox", "INBOX", a)
+		mailboxes[a] = append(mailboxes[a], Mailbox{Name: "INBOX", UidValidity: 1})
 
 		// create the mailboxes of each account
 		for mid := range(emails) {
@@ -527,6 +499,8 @@ func main() {
 		}
 		mailboxes_mutex.Unlock()
 
+		fmt.Println("POP3 STAT", "total_messages", total_messages, "total_size", total_size)
+
 		// return the total message count and size of all messages in bytes
 		return total_messages, total_size
 
@@ -540,7 +514,7 @@ func main() {
 		// each message needs an identifier that is a whole number, beginning with 1
 		// the message identifiers are used to identify messages in the RETR and DELE commands by POP3 clients
 
-		// return emails from all mailboxes
+		// return emails from the message store of the address
 		// POP3 treats the mailbox as a single store, and has no concept of folders
 		var total_size = 0
 		var mids []int
@@ -553,6 +527,8 @@ func main() {
 			m_sizes = append(m_sizes, email.Rfc822Size)
 		}
 		message_store_mutex.Unlock()
+
+		fmt.Println("POP3 LIST", "total_size", total_size, "len(mids)", len(mids), "len(m_sizes)", len(m_sizes))
 
 		// return total size in bytes of all messages, the message identifiers and the size of each message in bytes
 		return total_size, mids, m_sizes
