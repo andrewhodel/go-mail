@@ -219,7 +219,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 		(*login_status) = 0
 
 		// send a 235 response
-		conn.Write([]byte("235\r\n"))
+		conn.Write([]byte("235 OK\r\n"))
 
 	} else if (bytes.Index(c, []byte("STARTTLS")) == 0 && using_tls == false) {
 
@@ -266,7 +266,8 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 		conn.Write([]byte("250-SMTPUTF8\r\n"))
 
 		// respond without the - to request the next command
-		conn.Write([]byte("250\r\n"))
+		// " OK" is required by clients like Mozilla Thunderbird
+		conn.Write([]byte("250 OK\r\n"))
 
 	} else if (bytes.Index(c, []byte("AUTH PLAIN")) == 0) {
 
@@ -297,7 +298,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 			}
 
 			// respond with 235
-			conn.Write([]byte("235\r\n"))
+			conn.Write([]byte("235 OK\r\n"))
 
 		} else {
 
@@ -307,7 +308,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 			(*login_status) = 1
 
 			// respond with 334
-			conn.Write([]byte("334\r\n"))
+			conn.Write([]byte("334 OK\r\n"))
 
 		}
 
@@ -425,7 +426,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 	} else {
 
 		// 502 command not implemented
-		conn.Write([]byte("502\r\n"))
+		conn.Write([]byte("502 COMMAND NOT IMPLEMENTED\r\n"))
 
 	}
 
