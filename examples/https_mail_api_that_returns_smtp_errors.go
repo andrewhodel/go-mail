@@ -204,7 +204,7 @@ func handle_http_request(conn net.Conn) {
 		if (end_of_header == false) {
 
 			// add to header_data
-			for b := range buf {
+			for b := 0; b < l; b++ {
 				header_data = append(header_data, buf[b])
 			}
 
@@ -358,7 +358,7 @@ func handle_http_request(conn net.Conn) {
 			}
 
 			// add to body_data
-			for b := range(buf) {
+			for b := 0; b < l; b++ {
 				body_data = append(body_data, buf[b])
 			}
 
