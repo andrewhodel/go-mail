@@ -51,9 +51,11 @@ If `outbound_mail.RequireTLS` is true, TLS or STARTTLS must be used on the conne
 
 ## Absolutely secure Email via SMTP with TLS
 
-Without `outbound_mail.RequireServerNameOfReceivingAddresses = true` any router in the network path between the SMTP client and the receiving SMTP server can modify the DNS MX response and steal or copy the email being sent.
+Without `outbound_mail.RequireServerNameOfReceivingAddresses = true` any router in the network path between the SMTP origin and the SMTP destination can steal or copy the email being sent.
 
-That means that email hosting as provided by Google Workspaces (looks like Gmail) for domains other than gmail.com fail to receive email with `outbound_mail.RequireServerNameOfReceivingAddresses = true` because Google Workspaces does not require their customers to upload a TLS certificate.
+The routers between the mail servers can steal emails by acting as the destination IP address.  Although verification of origin is achieved by DKIM, the destination server is only verified if the origin server requires the TLS servernname of the destination server and validates that it is the same as the destination domain in the email address.
+
+That means that email hosting as provided by Google Workspaces (looks like Gmail) for domains other than gmail.com will fail to receive email with `outbound_mail.RequireServerNameOfReceivingAddresses = true` if Google Workspaces does not require their customers to upload a TLS certificate and the destination domain of the email address does not match that of the server.
 
 This is the `SendMail()` logic that explains how to use SMTP email securely.
 
