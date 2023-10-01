@@ -68,6 +68,7 @@ type Config struct {
 	SslCa				string	`json:"sslCa"`
 	LoadCertificatesFromFiles	bool	`json:"loadCertificatesFromFiles"`
 	Fqdn				string	`json:"fqdn"`
+	IdleTimeout			int	`json:"idleTimeout"`
 }
 
 type Email struct {
@@ -462,6 +463,9 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 	last_parse_data_block_position := 0
 
 	for {
+
+		// create an idle timeout
+		conn.SetDeadline(time.Now().Add(time.Duration(int(time.Second) * config.IdleTimeout)))
 
 		if (authed == false && sent_cmds > 3) {
 			// should be authorized
@@ -1845,6 +1849,9 @@ func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, 
 
 	for {
 
+		// create an idle timeout
+		conn.SetDeadline(time.Now().Add(time.Duration(int(time.Second) * config.IdleTimeout)))
+
 		if (sent_cmds > 5 && authed == false) {
 			// too many commands while not authenticated
 			conn.Write([]byte("-ERR unauthenticated send limit exceeded\r\n"))
@@ -2624,6 +2631,9 @@ func imap4HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config,
 	buf := make([]byte, 0)
 
 	for {
+
+		// create an idle timeout
+		conn.SetDeadline(time.Now().Add(time.Duration(int(time.Second) * config.IdleTimeout)))
 
 		b := make([]byte, 1024)
 
@@ -3665,6 +3675,9 @@ func smtp_client_read_command_response_line(conn net.Conn) (error, uint64, []byt
 	var max_read_size = 512
 	seq := 0
 	for true {
+
+		// create an idle timeout
+		conn.SetDeadline(time.Now().Add(time.Duration(int(time.Second) * 5)))
 
 		var read_buf = make([]byte, 1)
 

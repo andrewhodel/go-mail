@@ -9,5 +9,6 @@
 "sslCa": "../keys/__domain_com.ca-bundle",
 "sslPassphrase": "",
 "loadCertificatesFromFiles": true,
-"fqdn": "domain.com"
+"fqdn": "domain.com",
+"idleTimeout": 2
 }
