@@ -106,6 +106,8 @@ if (outbound_mail.RequireServerNameOfReceivingAddresses == true) {
 }
 ```
 
+`SendMail()` returns a `TLSInfo` string in the second response argument that tells the TLS ServerName, Hostname and IP Address.
+
 # License
 
 MIT

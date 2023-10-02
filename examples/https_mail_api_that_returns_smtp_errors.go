@@ -443,12 +443,12 @@ func handle_http_request(conn net.Conn) {
 
 				}
 
-				err, return_code, _ := gomail.SendMail(om)
+				err, send_resp, _ := gomail.SendMail(om)
 
 				if (err != nil) {
 					response = []byte("{\"error\": \"" + base64.StdEncoding.EncodeToString([]byte(err.Error())) + "\"}")
 				} else {
-					response = []byte("{\"smtp_response\": \"" + base64.StdEncoding.EncodeToString([]byte("email received by SMTP server with reply code: " + strconv.Itoa(return_code) + ".")) + "\"}")
+					response = []byte("{\"smtp_response\": \"" + base64.StdEncoding.EncodeToString([]byte("email received by SMTP server with reply code: " + strconv.Itoa(send_resp.ReplyCode) + ".  " + send_resp.TLSInfo + ".")) + "\"}")
 					//fmt.Println(email)
 					//fmt.Println(string(email))
 				}

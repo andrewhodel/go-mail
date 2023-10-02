@@ -386,14 +386,14 @@ func main() {
 					// add to address
 					om.To = []mail.Address{send_addresses[a]}
 
-					console_output += "\nsending email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj
+					err, send_resp, _ := gomail.SendMail(om)
 
-					err, return_code, _ := gomail.SendMail(om)
+					console_output += "\nsent email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj + "\nReply Code: " + strconv.Itoa(send_resp.ReplyCode) + "\n" + send_resp.TLSInfo
 
 					if (err != nil) {
 						console_output += "\ngomail.SendMail() error: " + err.Error()
 
-						if (return_code == 550 || return_code == 551) {
+						if (send_resp.ReplyCode == 550 || send_resp.ReplyCode == 551) {
 							// 550 is mailbox not found, no access or command rejected for policy reasons
 							// 551 is user not local; please try <forward-path>
 							// do not add to resend_queue
