@@ -321,7 +321,7 @@ func main() {
 		for a := range(ccs) {
 
 			// add each cc address
-			tf, tf_err := mail.ParseAddress(bccs[a])
+			tf, tf_err := mail.ParseAddress(ccs[a])
 			if tf_err == nil {
 
 				already_exists := false
