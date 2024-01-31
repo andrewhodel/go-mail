@@ -445,11 +445,6 @@ func main() {
 			return false
 		}
 
-		if (address_parts[1] != config.Fqdn) {
-			// this user is not from this domain
-			return false
-		}
-
 		if (shared_secret != "") {
 			// if there is a shared secret, the APOP command is being used
 
@@ -622,16 +617,11 @@ func main() {
 			return false
 		}
 
-		if (address_parts[1] == config.Fqdn) {
-			// this user is from this domain
-
-			// authenticate the session
-			if (auth_login == "") {
-			} else if (users[auth_login] == auth_password) {
-				// authenticated
-				return true
-			}
-
+		// authenticate the session
+		if (auth_login == "") {
+		} else if (users[auth_login] == auth_password) {
+			// authenticated
+			return true
 		}
 
 		// return true if allowed
