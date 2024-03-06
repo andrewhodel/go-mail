@@ -1091,33 +1091,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 									if (len(vv) > 3) {
 
-										if (nb[l] == []byte("\n")[0] && nb[l-1] == []byte("\r")[0] && nb[l+1] == []byte("\r")[0] && nb[l+2] == []byte("\n")[0]) {
-
-											//fmt.Printf("last header found: %s\n", vv)
-											ss := bytes.Split(vv, []byte(":"))
-											for ssc := range ss {
-												// trim spaces
-												ss[ssc] = bytes.Trim(ss[ssc], " ")
-											}
-
-											if (len(ss) > 1) {
-
-												// remove any newlines from ss[1]
-												ss[1] = bytes.ReplaceAll(ss[1], []byte("\r"), []byte(""))
-												ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
-
-												// add header
-												nb_headers[string(bytes.ToLower(ss[0]))] = string(bytes.ToLower(ss[1]))
-
-												last_header_end_pos = l + 3
-
-											}
-
-											// the headers ended
-											//fmt.Printf("\\r\\n\\r\\n END OF NB HEADERS, %d total.\n", len(nb_headers))
-
-											break
-										} else if (nb[l] == []byte("\n")[0] && nb[l-1] == []byte("\r")[0]) {
+										if (nb[l-1] == []byte("\r")[0] && nb[l] == []byte("\n")[0]) {
 
 											ml := false
 											if (len(nb) > l + 1) {
@@ -1152,6 +1126,13 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 												// reset test string
 												vv = make([]byte, 0)
+											}
+
+											if (len(nb) > l + 2) {
+												if (nb[l-1] == []byte("\r")[0] && nb[l] == []byte("\n")[0] && nb[l+1] == []byte("\r")[0] && nb[l+2] == []byte("\n")[0]) {
+													// last header found
+													break
+												}
 											}
 
 										}
