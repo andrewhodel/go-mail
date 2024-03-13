@@ -105,26 +105,31 @@ func main() {
 		for {
 
 			conn, err := ln.Accept()
-			if err != nil {
-				// handle error
-				continue
-			}
-			defer conn.Close()
 
-			// take the port number off the address
-			var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
-			_ = port
-			_ = iperr
+			go func() {
 
-			if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
-				conn.Close()
-				continue
-			}
+				if err != nil {
+					// handle error
+					return
+				}
+				defer conn.Close()
 
-			// set the idle timeout
-			conn.SetDeadline(time.Now().Add(time.Second * 5))
+				// take the port number off the address
+				var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+				_ = port
+				_ = iperr
 
-			go handle_http_request(conn)
+				if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+					conn.Close()
+					return
+				}
+
+				// set the idle timeout
+				conn.SetDeadline(time.Now().Add(time.Second * 5))
+
+				handle_http_request(conn)
+
+			}()
 
 		}
 

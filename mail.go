@@ -1405,25 +1405,30 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 
 	for {
 		conn, err := ln.Accept()
-		if err != nil {
-			// handle error
-			continue
-		}
-		defer conn.Close()
 
-		// take the port number off the address
-		var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
-		_ = port
-		_ = iperr
+		go func() {
 
-		if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
-			conn.Close()
-			continue
-		}
+			if err != nil {
+				// handle error
+				return
+			}
+			defer conn.Close()
 
-		//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
+			// take the port number off the address
+			var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+			_ = port
+			_ = iperr
 
-		go smtpHandleClient(ip_ac, true, false, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+			if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+				conn.Close()
+				return
+			}
+
+			//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
+
+			smtpHandleClient(ip_ac, true, false, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+
+		}()
 
 	}
 
@@ -1444,26 +1449,31 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 	for {
 
 		conn, err := listener.Accept()
-		if err != nil {
-			// error with socket
-			//fmt.Printf("smtp server socket error: : %s\n", err)
-			continue
-		}
-		defer conn.Close()
 
-		// take the port number off the address
-		var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
-		_ = port
-		_ = iperr
+		go func() {
 
-		if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
-			conn.Close()
-			continue
-		}
+			if err != nil {
+				// error with socket
+				//fmt.Printf("smtp server socket error: : %s\n", err)
+				return
+			}
+			defer conn.Close()
 
-		//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
+			// take the port number off the address
+			var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+			_ = port
+			_ = iperr
 
-		go smtpHandleClient(ip_ac, true, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+			if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+				conn.Close()
+				return
+			}
+
+			//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
+
+			smtpHandleClient(ip_ac, true, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+
+		}()
 
 	}
 
@@ -1575,25 +1585,30 @@ func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func, p
 	for {
 
 		conn, err := listener.Accept()
-		if err != nil {
-			//fmt.Printf("POP3 server: %s", err)
-			break
-		}
-		defer conn.Close()
 
-		// take the port number off the address
-		var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
-		_ = port
-		_ = iperr
+		go func() {
 
-		if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
-			conn.Close()
-			continue
-		}
+			if err != nil {
+				//fmt.Printf("POP3 server: %s", err)
+				return
+			}
+			defer conn.Close()
 
-		//fmt.Printf("POP3 server: connection from %s\n", conn.RemoteAddr())
+			// take the port number off the address
+			var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+			_ = port
+			_ = iperr
 
-		go pop3HandleClient(ip_ac, ip, conn, config, pop3_auth_func, pop3_stat_func, pop3_list_func, pop3_retr_func, pop3_dele_func)
+			if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+				conn.Close()
+				return
+			}
+
+			//fmt.Printf("POP3 server: connection from %s\n", conn.RemoteAddr())
+
+			pop3HandleClient(ip_ac, ip, conn, config, pop3_auth_func, pop3_stat_func, pop3_list_func, pop3_retr_func, pop3_dele_func)
+
+		}()
 
 	}
 
@@ -1940,25 +1955,30 @@ func Imap4Server(config Config, ip_ac ipac.Ipac, imap4_auth_func imap4_auth_func
 	for {
 
 		conn, err := listener.Accept()
-		if err != nil {
-			//fmt.Printf("IMAP4 server: %s", err)
-			break
-		}
-		defer conn.Close()
 
-		// take the port number off the address
-		var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
-		_ = port
-		_ = iperr
+		go func() {
 
-		if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
-			conn.Close()
-			continue
-		}
+			if err != nil {
+				//fmt.Printf("IMAP4 server: %s", err)
+				return
+			}
+			defer conn.Close()
 
-		//fmt.Printf("IMAP4 server: connection from %s\n", conn.RemoteAddr())
+			// take the port number off the address
+			var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+			_ = port
+			_ = iperr
 
-		go imap4HandleClient(ip_ac, ip, conn, config, imap4_auth_func, imap4_list_func, imap4_select_func, imap4_fetch_func, imap4_store_func, imap4_close_func, imap4_search_func)
+			if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+				conn.Close()
+				return
+			}
+
+			//fmt.Printf("IMAP4 server: connection from %s\n", conn.RemoteAddr())
+
+			imap4HandleClient(ip_ac, ip, conn, config, imap4_auth_func, imap4_list_func, imap4_select_func, imap4_fetch_func, imap4_store_func, imap4_close_func, imap4_search_func)
+
+		}()
 
 	}
 
