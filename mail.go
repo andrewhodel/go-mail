@@ -896,6 +896,11 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 										headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(canonicalized body hash encoded as base64 does not equal the bh= tag value)"
 
+									} else if (dkim_public_key == "") {
+
+										// no dkim_public_key was found in DNS
+										headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(no DKIM public key was found in DNS using query domain " + dkim_hp["s"] + "._domainkey." + dkim_hp["d"] + ")"
+
 									} else {
 
 										// body hash in the headers is the same as the calculated body hash
@@ -1018,7 +1023,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 												// the dkim data is valid
 												dkim_valid = true
-												headers["go-mail-dkim-validation"] = "(dkim validated by go-mail at time of reciept)"
+												headers["go-mail-dkim-validation"] = "(dkim validated by go-mail at time of reciept using public key " + dkim_public_key + " from query domain " + dkim_hp["s"] + "._domainkey." + dkim_hp["d"] + ")"
 
 											} else {
 												//fmt.Println("DKIM validation error, canonicalized headers hash did not equal to the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())")
