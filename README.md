@@ -111,3 +111,17 @@ if (outbound_mail.RequireServerNameOfReceivingAddresses == true) {
 # License
 
 MIT
+
+# Verification of Authorship
+
+The OP_RETURN data in this BTC transaction provides a sha256 checksum of the project file.  The BTC transaction provides a transaction date.  The file contains the author and the work.
+
+https://blockstream.info/tx/0914c23220712ff2eb96b4c49b7c2df3a128be04a5abd67ed3831d680a70c4a4?expand
+
+mail.go
+
+        commit                  3fade57d4b48c4910e39be46036e6bea3629ec73
+        sha256                  f74ef27f51929dce6aa70d6519addf87ff7a642980fe62dad5c2e738ae6ad137
+        op_return               7368613235362066373465663237663531393239646365366161373064363531396164646638376666376136343239383066653632646164356332653733386165366164313337
+        bitcoin transaction     0914c23220712ff2eb96b4c49b7c2df3a128be04a5abd67ed3831d680a70c4a4
+        date                    4/9/2024
