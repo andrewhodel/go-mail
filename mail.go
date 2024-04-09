@@ -1,6 +1,6 @@
 /*
-Copyright 2023 Andrew Hodel
-	andrew@xyzbots.com, andrewhodel@gmail.com, andrew@ispapp.co
+Copyright 2024 Andrew Hodel
+	andrew@xyzbots.com, andrewhodel@gmail.com
 
 LICENSE MIT
 

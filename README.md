@@ -111,10 +111,3 @@ if (outbound_mail.RequireServerNameOfReceivingAddresses == true) {
 # License
 
 MIT
-
-# bitcoin OP_RETURN validation of authorship
-
-bitcoin transaction ID: ff269df685d94d176e107fc8c4d0d2e819d9f5b20ca9b5833bb3edad15d429df
-https://www.blockstream.info/nojs/tx/ff269df685d94d176e107fc8c4d0d2e819d9f5b20ca9b5833bb3edad15d429df?expand
-
-The github URL with the commit identifier is forever recorded in the bitcoin transaction ff269df685d94d176e107fc8c4d0d2e819d9f5b20ca9b5833bb3edad15d429df.  The git commit identifiers prove all prior commits in the repository and the bitcoin transaction proves the date and time of the validation.
