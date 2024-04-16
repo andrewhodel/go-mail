@@ -913,122 +913,139 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 										// b= is the signature of the headers and body
 										//fmt.Println("signature base64 b=", dkim_hp["b"])
 
+										// this string as dkim_public_key causes an error "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDdpuAU4byvZtkEoQ8ZRl4ppDrI DDyDsrad7SdKlfvN/2C3TGAw9Tb+wuHw8oTO4QAMA5lnVzLryrcC6oJI/5vjPUM+ JwM2h7FRcXbFsWHhfIFpXdjjyYifdzT+oZ3ALHHs7UqxlHy1gOz0qXL4BC9ohs2m IstCvZWjvxdMmf50FQIDAQAB"
+
 										// get the public key as an x509 object
 										var dkim_public_x509_key rsa.PublicKey
 										un64, un64_err := base64.StdEncoding.DecodeString(dkim_public_key)
+										var x509_error_string = ""
 										if (un64_err == nil) {
 											pk, pk_err := x509.ParsePKIXPublicKey(un64)
 											if (pk_err == nil) {
 												if pk, ok := pk.(*rsa.PublicKey); ok {
 													dkim_public_x509_key = *pk
 												}
+											} else {
+
+												x509_error_string = pk_err.Error()
+
 											}
+										} else {
+
+											x509_error_string = un64_err.Error()
+
 										}
 
-										//fmt.Println("dkim_public_x509_key", dkim_public_x509_key)
+										if (dkim_public_x509_key.N == nil || x509_error_string != "") {
 
-										// create the canonicalized header string based on the field specified in the h= tag
-										// remove spaces from each field
-										dkim_hp["h"] = strings.ReplaceAll(dkim_hp["h"], " ", "")
-										// lowercase all field names
-										dkim_hp["h"] = strings.ToLower(dkim_hp["h"])
-										var canon_h = strings.Split(dkim_hp["h"], ":")
+											headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(an invalid DKIM public key (" + dkim_public_key + ") was found in DNS using query domain " + dkim_hp["s"] + "._domainkey." + dkim_hp["d"] + " failing with error: " + x509_error_string + ")"
 
-										// remove duplicates
-										var d = 0
-										for {
+										} else {
 
-											if (d >= len(canon_h)) {
-												// last entry
-												break
-											}
+											// create the canonicalized header string based on the field specified in the h= tag
+											// remove spaces from each field
+											dkim_hp["h"] = strings.ReplaceAll(dkim_hp["h"], " ", "")
+											// lowercase all field names
+											dkim_hp["h"] = strings.ToLower(dkim_hp["h"])
+											var canon_h = strings.Split(dkim_hp["h"], ":")
 
-											for dd := len(canon_h)-1; dd >= 0; dd-- {
-												if (canon_h[dd] == canon_h[d] && dd != d) {
-													// remove duplicate value
-													//fmt.Println("remove duplicate", dd, canon_h[dd], len(canon_h))
-													canon_h = append(canon_h[:dd], canon_h[dd+1:]...)
+											// remove duplicates
+											var d = 0
+											for {
+
+												if (d >= len(canon_h)) {
+													// last entry
+													break
 												}
-											}
 
-											d += 1
-
-										}
-
-										var canonicalized_header_string = ""
-
-										if (canon_algos[0] == "simple") {
-
-											// simple header canonicalization
-
-										} else if (canon_algos[0] == "relaxed") {
-
-											// relaxed header canonicalization
-
-											for h := range canon_h {
-
-												var h_name = canon_h[h]
-												//fmt.Println("h_name", h_name)
-
-												var is_real = false
-												for r := range real_headers {
-													if (real_headers[r] == h_name) {
-														is_real = true
-														break
+												for dd := len(canon_h)-1; dd >= 0; dd-- {
+													if (canon_h[dd] == canon_h[d] && dd != d) {
+														// remove duplicate value
+														//fmt.Println("remove duplicate", dd, canon_h[dd], len(canon_h))
+														canon_h = append(canon_h[:dd], canon_h[dd+1:]...)
 													}
 												}
 
-												if (is_real == true) {
-													// add each header specified in the h= tag with the valid format
-													// lowercase key values and no spaces on either side of :
-													canonicalized_header_string = canonicalized_header_string + h_name + ":" + headers[h_name] + "\r\n"
+												d += 1
+
+											}
+
+											var canonicalized_header_string = ""
+
+											if (canon_algos[0] == "simple") {
+
+												// simple header canonicalization
+
+											} else if (canon_algos[0] == "relaxed") {
+
+												// relaxed header canonicalization
+
+												for h := range canon_h {
+
+													var h_name = canon_h[h]
+													//fmt.Println("h_name", h_name)
+
+													var is_real = false
+													for r := range real_headers {
+														if (real_headers[r] == h_name) {
+															is_real = true
+															break
+														}
+													}
+
+													if (is_real == true) {
+														// add each header specified in the h= tag with the valid format
+														// lowercase key values and no spaces on either side of :
+														canonicalized_header_string = canonicalized_header_string + h_name + ":" + headers[h_name] + "\r\n"
+													}
+												}
+
+												//fmt.Println("\n\ncanonicalized_header_string", canonicalized_header_string)
+
+												// add the DKIM header that was used
+												// with no newlines, an empty b= tag and a space for each wsp sequence
+												// in the original header's order
+												dkim_tags, dkim_order := ParseTags([]byte(headers["dkim-signature"]))
+												var canonicalized_dkim_header_string = ""
+
+												for dh := range dkim_order {
+													var tag_name = dkim_order[dh]
+													if (tag_name != "b") {
+														canonicalized_dkim_header_string = canonicalized_dkim_header_string + tag_name + "=" + dkim_tags[tag_name] + "; "
+													}
+												}
+
+												// add the empty b= at the end with no ; at the end
+												canonicalized_dkim_header_string = canonicalized_dkim_header_string + "b=";
+
+												canonicalized_header_string = canonicalized_header_string + "dkim-signature:" + canonicalized_dkim_header_string
+
+											}
+
+											//fmt.Println("canonicalized_header_string", []byte(canonicalized_header_string))
+											//fmt.Println("canonicalized_header_string", canonicalized_header_string)
+
+											// verify the signature
+											var h1 hash.Hash
+											var h2 crypto.Hash
+											h1 = sha256.New()
+											h2 = crypto.SHA256
+
+											h1.Write([]byte(canonicalized_header_string))
+											sig, sig_err := base64.StdEncoding.DecodeString(dkim_hp["b"])
+											if (sig_err == nil) {
+												if (rsa.VerifyPKCS1v15(&dkim_public_x509_key, h2, h1.Sum(nil), sig) == nil) {
+
+													// the dkim data is valid
+													dkim_valid = true
+													headers["go-mail-dkim-validation"] = "(dkim validated by go-mail at time of reciept using public key " + dkim_public_key + " from query domain " + dkim_hp["s"] + "._domainkey." + dkim_hp["d"] + ")"
+
+												} else {
+													//fmt.Println("DKIM validation error, canonicalized headers hash did not equal to the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())")
+													headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(canonicalized headers hash did not equal the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())"
 												}
 											}
 
-											//fmt.Println("\n\ncanonicalized_header_string", canonicalized_header_string)
-
-											// add the DKIM header that was used
-											// with no newlines, an empty b= tag and a space for each wsp sequence
-											// in the original header's order
-											dkim_tags, dkim_order := ParseTags([]byte(headers["dkim-signature"]))
-											var canonicalized_dkim_header_string = ""
-
-											for dh := range dkim_order {
-												var tag_name = dkim_order[dh]
-												if (tag_name != "b") {
-													canonicalized_dkim_header_string = canonicalized_dkim_header_string + tag_name + "=" + dkim_tags[tag_name] + "; "
-												}
-											}
-
-											// add the empty b= at the end with no ; at the end
-											canonicalized_dkim_header_string = canonicalized_dkim_header_string + "b=";
-
-											canonicalized_header_string = canonicalized_header_string + "dkim-signature:" + canonicalized_dkim_header_string
-
-										}
-
-										//fmt.Println("canonicalized_header_string", []byte(canonicalized_header_string))
-										//fmt.Println("canonicalized_header_string", canonicalized_header_string)
-
-										// verify the signature
-										var h1 hash.Hash
-										var h2 crypto.Hash
-										h1 = sha256.New()
-										h2 = crypto.SHA256
-
-										h1.Write([]byte(canonicalized_header_string))
-										sig, sig_err := base64.StdEncoding.DecodeString(dkim_hp["b"])
-										if (sig_err == nil) {
-											if (rsa.VerifyPKCS1v15(&dkim_public_x509_key, h2, h1.Sum(nil), sig) == nil) {
-
-												// the dkim data is valid
-												dkim_valid = true
-												headers["go-mail-dkim-validation"] = "(dkim validated by go-mail at time of reciept using public key " + dkim_public_key + " from query domain " + dkim_hp["s"] + "._domainkey." + dkim_hp["d"] + ")"
-
-											} else {
-												//fmt.Println("DKIM validation error, canonicalized headers hash did not equal to the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())")
-												headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(canonicalized headers hash did not equal the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())"
-											}
 										}
 
 									}
