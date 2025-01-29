@@ -350,7 +350,7 @@ func main() {
 		} else {
 			h_split_pos += 4
 		}
-		if (end_split_pos == -1) {
+		if (end_split_pos == -1 || end_split_pos < h_split_pos) {
 			end_split_pos = len((*email_data)) - 1
 		}
 
