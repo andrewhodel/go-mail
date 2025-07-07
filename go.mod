@@ -1,3 +1,3 @@
-module github.com/andrewhodel/go-mail
+module go-mail
 
 go 1.15

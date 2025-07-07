@@ -9,8 +9,8 @@ import (
 	"strings"
 	"os"
 	"bytes"
-	"github.com/andrewhodel/go-ip-ac"
-	"github.com/andrewhodel/go-mail"
+	"go-ip-ac"
+	"go-mail"
 	"strconv"
 	"crypto/tls"
 	"crypto/rand"
@@ -322,7 +322,7 @@ func handle_http_request(conn net.Conn) {
 	var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
         _ = port
         _ = iperr
-        ipac.ModifyAuth(&ip_ac, 2, ip)
+        ipac.ModifyAuth(&ip_ac, "valid_login", ip)
 
 	if (read_body_data == true) {
 

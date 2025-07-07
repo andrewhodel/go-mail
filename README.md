@@ -39,11 +39,10 @@ Read the programs in `examples/`.
 # Installation
 
 ```
-GO111MODULE=off go get github.com/andrewhodel/go-ip-ac
-GO111MODULE=off go get github.com/andrewhodel/go-mail
+cd go/src
+git clone github.com/andrewhodel/go-ip-ac
+git clone github.com/andrewhodel/go-mail
 ```
-
-Run with `GO111MODULE=off go run program.go` or `sudo GOPATH=/home/ec2-user/go GO111MODULE=off go run program.go` for port numbers lower than 1024.
 
 # SendMail() and TLS
 

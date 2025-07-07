@@ -13,8 +13,8 @@ import (
 	"os"
 	"sync"
 	"bytes"
-	"github.com/andrewhodel/go-ip-ac"
-	"github.com/andrewhodel/go-mail"
+	"go-ip-ac"
+	"go-mail"
 )
 
 type Mailbox struct {
@@ -137,7 +137,7 @@ func main() {
 	resend_queue = make(map[string] gomail.OutboundMail)
 	go resend_loop()
 
-	go gomail.SmtpServer(ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) (bool, string) {
+	go gomail.SmtpServer(&ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) (bool, string) {
 
 		// from_address		MAIL FROM value
 		// ip			ip address of the sending client
@@ -422,7 +422,7 @@ func main() {
 
 	})
 
-	go gomail.Pop3Server(config, ip_ac, func(ip string, auth_login string, auth_password string, shared_secret string) bool {
+	go gomail.Pop3Server(config, &ip_ac, func(ip string, auth_login string, auth_password string, shared_secret string) bool {
 
 		// ip			ip address
 		// auth_login		login
@@ -600,7 +600,7 @@ func main() {
 
 	})
 
-	go gomail.Imap4Server(config, ip_ac, func(ip string, auth_login string, auth_password string) bool {
+	go gomail.Imap4Server(config, &ip_ac, func(ip string, auth_login string, auth_password string) bool {
 
 		// ip			ip address
 		// auth_login		login

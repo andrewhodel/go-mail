@@ -4,7 +4,7 @@ import (
 	"os"
 	"fmt"
 	"net/mail"
-	"github.com/andrewhodel/go-mail"
+	"go-mail"
 )
 
 func main() {

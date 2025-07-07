@@ -37,7 +37,7 @@ import (
 	"encoding/base64"
 	"mime/quotedprintable"
 	"os"
-	"github.com/andrewhodel/go-ip-ac"
+	"go-ip-ac"
 )
 
 type mail_from_func func(string, string, string, string, *bool) (bool, string)
@@ -191,7 +191,7 @@ func ParseTags(b []byte) (map[string]string, []string) {
 }
 
 // execute and respond to a command
-func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, esmtp_authed *bool, mail_from *string, rcpt_to_addresses *[]string, parse_data *bool, sent_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpExecCmd(ip_ac *ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.Config, config Config, c []byte, auth_login *string, auth_password *string, login_status *int, authed *bool, esmtp_authed *bool, mail_from *string, rcpt_to_addresses *[]string, parse_data *bool, sent_cmds *int, login *[]byte, ip string, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("smtp smtpExecCmd: %s\n", c)
 
@@ -338,7 +338,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 		if (mail_from_authed == false) {
 
 			// invalid auth
-			ipac.ModifyAuth(&ip_ac, 1, ip)
+			ipac.ModifyAuth(ip_ac, "invalid_login", ip)
 
 			if (mail_from_error_string == "") {
 				// use default response, 221
@@ -379,7 +379,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 		} else {
 
 			// invalid auth
-			ipac.ModifyAuth(&ip_ac, 1, ip)
+			ipac.ModifyAuth(ip_ac, "invalid_login", ip)
 
 			if (rcpt_to_error_string == "") {
 				// 550 to indicate no mailbox found
@@ -398,7 +398,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 		if ((*authed)) {
 
 			// valid auth
-			ipac.ModifyAuth(&ip_ac, 2, ip)
+			ipac.ModifyAuth(ip_ac, "valid_login", ip)
 
 			(*parse_data) = true
 			conn.Write([]byte("354 End data with <CR><LF>.<CR><LF>\r\n"))
@@ -406,7 +406,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 		} else {
 
 			// invalid auth
-			ipac.ModifyAuth(&ip_ac, 1, ip)
+			ipac.ModifyAuth(ip_ac, "invalid_login", ip)
 
 			// 221 <domain>
 			// service closing transmission channel
@@ -438,7 +438,7 @@ func smtpExecCmd(ip_ac ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls.
 
 }
 
-func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Conn, tls_config tls.Config, ip string, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Conn, tls_config tls.Config, ip string, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	//fmt.Printf("new SMTP connection from %s\n", ip)
 
@@ -1414,7 +1414,7 @@ func smtpHandleClient(ip_ac ipac.Ipac, is_new bool, using_tls bool, conn net.Con
 
 }
 
-func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpListenNoEncrypt(ip_ac *ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	ln, err := net.Listen("tcp", ":" + strconv.FormatInt(lport, 10))
 	if err != nil {
@@ -1441,7 +1441,7 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 			_ = port
 			_ = iperr
 
-			if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+			if (ipac.TestIpAllowed(ip_ac, ip) == false) {
 				conn.Close()
 				return
 			}
@@ -1456,7 +1456,7 @@ func smtpListenNoEncrypt(ip_ac ipac.Ipac, lport int64, config Config, tls_config
 
 }
 
-func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpListenTLS(ip_ac *ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	service := ":" + strconv.FormatInt(lport, 10)
 	listener, err := tls.Listen("tcp", service, &tls_config)
@@ -1486,7 +1486,7 @@ func smtpListenTLS(ip_ac ipac.Ipac, lport int64, config Config, tls_config tls.C
 			_ = port
 			_ = iperr
 
-			if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+			if (ipac.TestIpAllowed(ip_ac, ip) == false) {
 				conn.Close()
 				return
 			}
@@ -1523,7 +1523,7 @@ func CertFromPemBytes(bytes []byte, password string) (tls.Certificate, error) {
 	return cert, nil
 }
 
-func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func SmtpServer(ip_ac *ipac.Ipac, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
 
 	var cert tls.Certificate
 	var err error
@@ -1564,7 +1564,7 @@ func SmtpServer(ip_ac ipac.Ipac, config Config, mail_from_func mail_from_func, r
 
 }
 
-func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
+func Pop3Server(config Config, ip_ac *ipac.Ipac, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
 	var cert tls.Certificate
 	var err error
@@ -1621,7 +1621,7 @@ func Pop3Server(config Config, ip_ac ipac.Ipac, pop3_auth_func pop3_auth_func, p
 			_ = port
 			_ = iperr
 
-			if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+			if (ipac.TestIpAllowed(ip_ac, ip) == false) {
 				conn.Close()
 				return
 			}
@@ -1649,7 +1649,7 @@ func pop3Cw(conn net.Conn, b []byte) {
 }
 
 // execute and respond to a command
-func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string, authed *bool, auth_login *string, auth_password *string, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
+func pop3ExecCmd(ip_ac *ipac.Ipac, ip string, conn net.Conn, c []byte, ss string, authed *bool, auth_login *string, auth_password *string, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
 	// each command can be up to 512 bytes
 	// remove all characters at \r\n
@@ -1694,14 +1694,14 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 			if ((*authed) == true) {
 
 				// invalid auth
-				ipac.ModifyAuth(&ip_ac, 2, ip)
+				ipac.ModifyAuth(ip_ac, "valid_login", ip)
 
 				conn.Write([]byte("+OK logged in\r\n"))
 
 			} else {
 
 				// invalid auth
-				ipac.ModifyAuth(&ip_ac, 1, ip)
+				ipac.ModifyAuth(ip_ac, "invalid_login", ip)
 
 				conn.Write([]byte("-ERR invalid credentialsr\n"))
 				conn.Close()
@@ -1735,7 +1735,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 				//fmt.Println("POP3 APOP authenticated")
 
 				// valid auth
-				ipac.ModifyAuth(&ip_ac, 2, ip)
+				ipac.ModifyAuth(ip_ac, "valid_login", ip)
 
 				conn.Write([]byte("+OK logged in\r\n"))
 
@@ -1744,7 +1744,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 				//fmt.Println("POP3 APOP not authenticated")
 
 				// invalid auth
-				ipac.ModifyAuth(&ip_ac, 1, ip)
+				ipac.ModifyAuth(ip_ac, "invalid_login", ip)
 
 				conn.Write([]byte("-ERR invalid credentials\r\n"))
 				conn.Close()
@@ -1849,7 +1849,7 @@ func pop3ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, ss string,
 
 }
 
-func pop3HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
+func pop3HandleClient(ip_ac *ipac.Ipac, ip string, conn net.Conn, config Config, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
 
 	defer conn.Close()
 
@@ -1934,7 +1934,7 @@ func pop3TimestampBanner(fqdn string) (string) {
 
 }
 
-func Imap4Server(config Config, ip_ac ipac.Ipac, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func, imap4_search_func imap4_search_func) {
+func Imap4Server(config Config, ip_ac *ipac.Ipac, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func, imap4_search_func imap4_search_func) {
 
 	var cert tls.Certificate
 	var err error
@@ -1991,7 +1991,7 @@ func Imap4Server(config Config, ip_ac ipac.Ipac, imap4_auth_func imap4_auth_func
 			_ = port
 			_ = iperr
 
-			if (ipac.TestIpAllowed(&ip_ac, ip) == false) {
+			if (ipac.TestIpAllowed(ip_ac, ip) == false) {
 				conn.Close()
 				return
 			}
@@ -2019,7 +2019,7 @@ func imap4Cw(conn net.Conn, b []byte) {
 }
 
 // execute and respond to a command
-func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *bool, auth_login *string, auth_password *string, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func, imap4_search_func imap4_search_func) {
+func imap4ExecCmd(ip_ac *ipac.Ipac, ip string, conn net.Conn, c []byte, authed *bool, auth_login *string, auth_password *string, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func, imap4_search_func imap4_search_func) {
 
 	// remove \r\n from the command
 	c = bytes.TrimRight(c, "\r\n")
@@ -2082,7 +2082,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 				//fmt.Println("IMAP4 authenticated")
 
 				// valid auth
-				ipac.ModifyAuth(&ip_ac, 2, ip)
+				ipac.ModifyAuth(ip_ac, "valid_login", ip)
 
 				conn.Write([]byte(string(seq) + " OK LOGIN completed\r\n"))
 
@@ -2091,7 +2091,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 				//fmt.Println("IMAP4 not authenticated")
 
 				// invalid auth
-				ipac.ModifyAuth(&ip_ac, 1, ip)
+				ipac.ModifyAuth(ip_ac, "invalid_login", ip)
 
 				conn.Write([]byte(string(seq) + " NO invalid credentials\r\n"))
 				conn.Close()
@@ -2634,7 +2634,7 @@ func imap4ExecCmd(ip_ac ipac.Ipac, ip string, conn net.Conn, c []byte, authed *b
 
 }
 
-func imap4HandleClient(ip_ac ipac.Ipac, ip string, conn net.Conn, config Config, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func, imap4_search_func imap4_search_func) {
+func imap4HandleClient(ip_ac *ipac.Ipac, ip string, conn net.Conn, config Config, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func, imap4_search_func imap4_search_func) {
 
 	defer conn.Close()
 
