@@ -8,28 +8,6 @@ import (
 
 func main() {
 
-	/*
-	type OutboundMail struct {
-		SendingHost			string			fqdn or hostname of the client (sending) host
-		Username			string			ESMTP AUTH username
-		Password			string			ESMTP AUTH password
-		ReceivingHostTlsConfig		*tls.Config		TLS Config of the server
-		ReceivingHost			string			server address
-		Port				int			server port, 25 does not use TLS by default
-		From				mail.Address
-		To				[]mail.Address		list of addresses sent to and in the to header
-		Cc				[]mail.Address		list of addresses sent to and in the cc header
-		Bcc				[]mail.Address		list of addresses sent to and in the bcc header
-		Subj				string
-		Body				[]byte
-		DkimPrivateKey			[]byte			DKIM private key (private key to use to sign the DKIM headers in the email)
-		DkimDomain			string			DKIM domain (address of DKIM public key TXT record)
-		DkimSigningAlgo			string			DKIM signing algorithm (rsa-sha256 supported)
-		DkimExpireSeconds		int			DKIM seconds from send time to expire (default 3600)
-		Headers				map[string]string	Headers to send, these overwrite: OutboundMail.From, OutboundMail.To, OutboundMail.Cc, OutboundMail.Bcc, OutboundMail.Subj when defined in the Headers map[string]string
-	}
-	*/
-
 	var om gomail.OutboundMail
 	om.SendingHost = "localhost"
 	om.Username = "user"

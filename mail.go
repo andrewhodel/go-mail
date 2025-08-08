@@ -29,6 +29,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/mail"
 	"bytes"
 	"strings"
@@ -107,7 +108,6 @@ type OutboundMail struct {
 	FirstSendFailure			time.Time
 	RequireTLS				bool
 	RequireServerNameOfReceivingAddresses	bool
-	STARTTLS_ServerName			string
 }
 
 type Esmtp struct {
@@ -369,6 +369,13 @@ func smtpExecCmd(ip_ac *ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls
 
 		//fmt.Printf("rcpt address (between %d and %d): %s\n", i1, i2, s)
 
+		// remove relay hosts if there are any such as <@hosta.int,@jkl.org:userc@d.bar.org>
+		var parts = bytes.SplitN(s, []byte(":"), 2)
+		if (len(parts) > 1) {
+			s = parts[1]
+		}
+
+		// this command can happen multiple times to have multiple recipients
 		(*rcpt_to_addresses) = append((*rcpt_to_addresses), string(s))
 
 		var rcpt_to_error_string string
@@ -2948,29 +2955,39 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		outbound_mail.Port = 25
 	}
 	if (outbound_mail.ReceivingHost == "") {
+
 		// set from to address
 		if (len(outbound_mail.To) > 0) {
+
 			p := strings.Split(outbound_mail.To[0].Address, "@")
 			outbound_mail.ReceivingHost = p[1]
 
-			// get mx record to get address of SMTP server
-			var r net.Resolver
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second * 10)
-			defer cancel()
-			mx, mx_err := r.LookupMX(ctx, p[1])
+			_, ip_parse_err := netip.ParseAddr(outbound_mail.ReceivingHost)
 
-			if (mx_err == nil) {
-				if (len(mx) > 0) {
-					outbound_mail.ReceivingHost = mx[0].Host
+			if (ip_parse_err != nil) {
+
+				// get mx record to get address of SMTP server
+				var r net.Resolver
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second * 10)
+				defer cancel()
+				mx, mx_err := r.LookupMX(ctx, p[1])
+
+				if (mx_err == nil) {
+					if (len(mx) > 0) {
+						outbound_mail.ReceivingHost = mx[0].Host
+					} else {
+						return errors.New("No MX records found for " + outbound_mail.To[0].String()), send_resp, nil
+					}
 				} else {
-					return errors.New("No MX records found for " + outbound_mail.To[0].String()), send_resp, nil
+					return mx_err, send_resp, nil
 				}
-			} else {
-				return mx_err, send_resp, nil
+
 			}
+
 		} else {
 			return errors.New("No To address or ReceivingHost set."), send_resp, nil
 		}
+
 	}
 
 	// Connect to the SMTP Server
@@ -2991,9 +3008,6 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 			all_same_receiving_domain = false
 		}
 
-		// set this from all receiving email addresses as those must be the same with RequireServerNameOfReceivingAddresses
-		servername_from_receiving_addresses = s[1]
-
 	}
 
 	for i := range outbound_mail.Cc {
@@ -3006,9 +3020,6 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 			// all email addresses are not the same domain
 			all_same_receiving_domain = false
 		}
-
-		// set this from all receiving email addresses as those must be the same with RequireServerNameOfReceivingAddresses
-		servername_from_receiving_addresses = s[1]
 
 	}
 
@@ -3023,50 +3034,11 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 			all_same_receiving_domain = false
 		}
 
-		// set this from all receiving email addresses as those must be the same with RequireServerNameOfReceivingAddresses
-		servername_from_receiving_addresses = s[1]
-
 	}
 
 	if (outbound_mail.RequireServerNameOfReceivingAddresses == true) {
 
-		if (outbound_mail.ReceivingHostTlsConfig != nil) {
-
-			// the ServerName can be set in ReceivingHostTlsConfig
-			// it is not possible to use RequireServerNameOfReceivingAddresses and ReceivingHostTlsConfig with the same email
-			return errors.New("it is not possible to use RequireServerNameOfReceivingAddresses and ReceivingHostTlsConfig with the same email because ServerName can be set in ReceivingHostTlsConfig"), send_resp, nil
-
-		}
-
-		if (all_same_receiving_domain == true) {
-			// all the receiving email addresses are the same domain
-
-			if (servername_from_receiving_addresses == outbound_mail.ReceivingHost) {
-
-				// the email addresses domain matches ReceivingHost exactly
-				// keep the servername from ReceivingHost
-
-			} else if (strings.Index(outbound_mail.ReceivingHost, servername_from_receiving_addresses) == len(outbound_mail.ReceivingHost) - len(servername_from_receiving_addresses)) {
-
-				// the email addresses domain matches ReceivingHost's major domain (*.domain.tld) regardless of having a subdomain
-				// keep the servername from ReceivingHost
-
-				// allowing hosts that are subdomains of the receiving domain and using TLS to be validated
-
-				// also allowing 3rd party hosting of email by setting the MX record of domain.tld to unused-subdomain.domain.tld and creating an A record of unused-subdomain.domain.tld
-				// with the IP address of the 3rd party host, then providing the third party host with the TLS certificate of unused-subdomain.domain.tld
-
-			} else {
-
-				// use the servername from the receiving email addresses if it does not match ReceivingHost or a subdomain of ReceivingHost
-				// this will work with any DNS MX record while STARTTLS returns the valid TLS certificate with ServerName of the receiving email addresses
-				outbound_mail.STARTTLS_ServerName = servername_from_receiving_addresses
-
-				// allowing 3rd party hosting of email by providing SMTP and requiring STARTTLS that uses the TLS certificate and servername of the receiving email addresses
-
-			}
-
-		} else if (all_same_receiving_domain == false) {
+		if (all_same_receiving_domain == false) {
 
 			return errors.New("Receiving email addresses (TO, CC and BCC) must all be the same if RequireServerNameOfReceivingAddresses is true"), send_resp, nil
 
@@ -3282,29 +3254,24 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 				if (outbound_mail.ReceivingHostTlsConfig == nil) {
 
-					// OS TLS config
-					if (outbound_mail.STARTTLS_ServerName == "") {
-
-						// use ReceivingHost as ServerName
-						tlsconfig = &tls.Config {
-							ServerName: outbound_mail.ReceivingHost,
-							ClientAuth: tls.RequireAndVerifyClientCert,
-						}
-
-					} else {
-
-						// use STARTTLS_ServerName as ServerName
-						// this allows an SMTP server to securely provide SMTP for other domains
-						tlsconfig = &tls.Config {
-							ServerName: outbound_mail.STARTTLS_ServerName,
-							ClientAuth: tls.RequireAndVerifyClientCert,
-						}
-
+					// use ReceivingHost as ServerName
+					tlsconfig = &tls.Config {
+						ServerName: outbound_mail.ReceivingHost,
+						// this is used because based on OutboundMail.RequireServerNameOfReceivingAddresses, VerifyConnection is used after STARTTLS succeeds
+						InsecureSkipVerify: true,
+						ClientAuth: tls.RequestClientCert,
 					}
 
 				} else {
 					// supplied tls config
 					tlsconfig = outbound_mail.ReceivingHostTlsConfig
+				}
+
+				if (outbound_mail.RequireTLS == false) {
+
+					// the TLS upgrade can happen with only RequestClientCert
+					(*tlsconfig).ClientAuth = tls.RequestClientCert
+
 				}
 
 				var tlsConn *tls.Conn
@@ -3355,16 +3322,40 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 	if (outbound_mail.RequireTLS == true) {
 
+		// requiring TLS does not mean requiring that the server name matches the certificate
+
 		if (fmt.Sprintf("%T", conn) != "*tls.Conn") {
 			// tls is not valid
-			return errors.New("smtp server did not provide TLS or STARTTLS"), send_resp, nil
+			return errors.New("smtp server did not provide TLS or STARTTLS."), send_resp, nil
 		}
 
 		conn_state := conn.(*tls.Conn).ConnectionState()
 		if (conn_state.HandshakeComplete == true) {
 			// tls is valid
 		} else {
+			return errors.New("smtp server did not provide TLS or STARTTLS."), send_resp, nil
+		}
+
+	}
+
+	if (outbound_mail.RequireServerNameOfReceivingAddresses == true) {
+
+		// this also works with SAN lists that can include IP addresses
+
+		if (fmt.Sprintf("%T", conn) != "*tls.Conn") {
+			// tls is not valid
 			return errors.New("smtp server did not provide TLS or STARTTLS"), send_resp, nil
+		}
+
+		conn_state := conn.(*tls.Conn).ConnectionState()
+
+		if (conn_state.ServerName != outbound_mail.ReceivingHost) {
+			// TLS is valid but the ServerName does not match outbound_Mail.ReceivingHost
+			return errors.New("smtp server did not provide a valid ServerName that matches ReceivingHost."), send_resp, nil
+		} else if (conn_state.HandshakeComplete == true) {
+			// tls is valid
+		} else {
+			return errors.New("smtp server did not provide TLS or STARTTLS."), send_resp, nil
 		}
 
 	}
@@ -3794,4 +3785,20 @@ func RandStringBytesMaskImprSrcUnsafe(n int) string {
 	}
 
 	return *(*string)(unsafe.Pointer(&b))
+}
+
+func GetLocalAndDomain(input string) (string, string) {
+
+	// return local-part, domain from local-part@domain.com
+	// does not accept <> and "", parse with mail.ParseAddress first
+
+	var s = strings.SplitN(input, "@", 2)
+
+	if (len(s) > 1) {
+		return s[0], s[1]
+	} else {
+		// return with empty domain
+		return s[0], ""
+	}
+
 }
