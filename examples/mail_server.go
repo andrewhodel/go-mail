@@ -230,8 +230,8 @@ func main() {
 		if ((*dkim_valid) == true) {
 			dkim_string = "true"
 		}
-		var console_output = "full email received, length: " + strconv.Itoa(len((*email_data))) + "\nDKIM valid: " + dkim_string + "\nIP Address: " + (*ip)
-		//console_output += "\n" + string((*email_data)) + "\nMAIL FROM: " + (*mail_from) + "\nRCPT TO: " + fmt.Sprintf("%+v", (*rcpt_to_addresses))
+		fmt.Println("full email received, length: " + strconv.Itoa(len((*email_data))) + "\nDKIM valid: " + dkim_string + "\nIP Address: " + (*ip))
+		//fmt.Println(string((*email_data)) + "\nMAIL FROM: " + (*mail_from) + "\nRCPT TO: " + fmt.Sprintf("%+v", (*rcpt_to_addresses)))
 
 		// get list of each address to send to
 		// send to external servers
@@ -278,12 +278,12 @@ func main() {
 
 			if (users[send_addresses[a].Address] != "") {
 				// send to local domain
-				console_output += "\nstoring at local domain:\n" + string(*email_data)
+				fmt.Println("storing at local domain:\n" + string(*email_data))
 			} else {
 
 				if ((*esmtp_authed) == false) {
 					// never send to external domains unless esmtp authed
-					console_output += "\nnot sending to external domain, not esmtp authed"
+					fmt.Println("not sending to external domain, not esmtp authed")
 					continue
 				}
 
@@ -291,7 +291,8 @@ func main() {
 				var om gomail.OutboundMail
 				om.DkimPrivateKey = pk
 				om.DkimDomain = "aaaaaaaaaaaaaaaaaa._domainkey.domain.tld"
-				om.From = (*pf)
+				from_address, _ := mail.ParseAddress((*mail_from))
+				om.From = (*from_address)
 				om.Subj = (*headers)["subject"]
 				om.Body = (*email_data)[h_split_pos:end_split_pos]
 				// email will not send unless the server provides TLS or STARTTLS
@@ -303,37 +304,55 @@ func main() {
 				// add to address
 				om.To = []mail.Address{send_addresses[a]}
 
-				err, send_resp, _ := gomail.SendMail(om)
+				var sent_mail = gomail.SendMail(&om)
 
-				console_output += "\nsent email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj + "\nReply Code: " + strconv.Itoa(send_resp.ReplyCode) + "\n" + send_resp.TLSInfo
+				fmt.Println("sent email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj)
 
-				if (err != nil) {
-					console_output += "\ngomail.SendMail() error: " + err.Error()
+				var sent = true
 
-					if (send_resp.ReplyCode == 550 || send_resp.ReplyCode == 551) {
-						// 550 is mailbox not found, no access or command rejected for policy reasons
-						// 551 is user not local; please try <forward-path>
-						// do not add to resend_queue
-					} else {
+				if (sent_mail.Error != nil) {
 
-						// add to resend_queue
-						om.FirstSendFailure = time.Now()
-						resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
+					fmt.Println("gomail.SendMail() error:", sent_mail.Error.Error())
 
-					}
+					sent = false
 
 				} else {
 
-					console_output += "\nemail received by server\n"
-					//fmt.Println(email)
-					//fmt.Println(string(email))
+					// the email may be sent to multiple servers
+
+					for hostname := range sent_mail.ReceivingServers {
+
+						var rs = sent_mail.ReceivingServers[hostname]
+
+						if ((*rs).Error != nil) {
+
+							fmt.Println("email not received by server", hostname, (*rs).Error.Error())
+
+							sent = false
+
+						} else {
+							fmt.Println("email received by server", hostname, (*rs).ReplyCode, (*rs).TLSInfo)
+
+							// FIX remove addresses that received the mail, specified in sent_mail.AddressesThatReceivedEmail
+							// to resend without duplicates
+
+						}
+
+					}
+
+				}
+
+				if (sent == false) {
+
+					// add to resend_queue
+					om.FirstSendFailure = time.Now()
+					resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
+
 				}
 
 			}
 
 		}
-
-		fmt.Println("*****\n" + console_output + "\n*****")
 
 	})
 
@@ -811,15 +830,50 @@ func resend_loop() {
 			continue
 		}
 
-		err, _, _ := gomail.SendMail(resend_queue[m])
+		var om = resend_queue[m]
 
-		if (err != nil) {
-			console_output += "\ngomail.SendMail() error: " + err.Error()
+		var sent_mail = gomail.SendMail(&om)
+
+		var sent = true
+
+		if (sent_mail.Error != nil) {
+
+			fmt.Println("gomail.SendMail() error:", sent_mail.Error.Error())
+
+			sent = false
+
 		} else {
-			console_output += "\nemail received by server"
-			//fmt.Println(email)
-			//fmt.Println(string(email))
+
+			// the email may be sent to multiple servers
+
+			for hostname := range sent_mail.ReceivingServers {
+
+				var rs = sent_mail.ReceivingServers[hostname]
+
+				if ((*rs).Error != nil) {
+
+					fmt.Println("email not received by server", hostname, (*rs).Error.Error())
+
+					sent = false
+
+				} else {
+
+					fmt.Println("email received by server", hostname, (*rs).ReplyCode, (*rs).TLSInfo)
+
+					// FIX remove addresses that received the mail, specified in sent_mail.AddressesThatReceivedEmail
+					// to resend without duplicates
+
+				}
+
+			}
+
+		}
+
+		if (sent == true) {
+
+			// delete from resend_queue
 			delete(resend_queue, m)
+
 		}
 
 	}

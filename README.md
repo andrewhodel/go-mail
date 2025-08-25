@@ -34,7 +34,7 @@ ParseTags()
 
 # Examples
 
-Read the programs in `examples/`.
+Read the examples in `examples/`.
 
 # Installation
 
@@ -56,7 +56,7 @@ The routers between the mail servers can steal emails by acting as the destinati
 
 That means that email hosting as provided by Google Workspaces (looks like Gmail) for domains other than gmail.com will fail to receive email with `outbound_mail.RequireServerNameOfReceivingAddresses = true` if Google Workspaces does not require their customers to upload a TLS certificate and the destination domain of the email address does not match that of the server.
 
-`SendMail()` returns a `TLSInfo` string in the second response argument that tells the TLS ServerName, Hostname and IP Address.
+`SendMail()` returns a `TLSInfo` string of each server connected to that tells the TLS ServerName, Hostname and IP Address.  The Hostname and ServerName can be proven to match.
 
 # License
 

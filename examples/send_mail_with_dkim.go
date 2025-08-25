@@ -27,14 +27,29 @@ func main() {
 	to = append(to, mail.Address{"Andrew Hodel", "andrewhodel@gmail.com"})
 	om.To = to
 
-	// the data as sent to the server is in em
-	err, send_resp, em := gomail.SendMail(om)
-	_ = em
+	// returns gomail.SentMail
+	var sent_mail = gomail.SendMail(&om)
 
-	if (err != nil) {
-		fmt.Println("gomail.SendMail() error:", err)
+	if (sent_mail.Error != nil) {
+
+		fmt.Println("gomail.SendMail() error:", sent_mail.Error.Error())
+
 	} else {
-		fmt.Println("email received by server", send_resp.ReplyCode, send_resp.TLSInfo, em)
+
+		// the email may be sent to multiple servers
+
+		for hostname := range sent_mail.ReceivingServers {
+
+			var rs = sent_mail.ReceivingServers[hostname]
+
+			if ((*rs).Error != nil) {
+				fmt.Println("email not received by server", hostname, (*rs).Error.Error())
+			} else {
+				fmt.Println("email received by server", hostname, (*rs).ReplyCode, (*rs).TLSInfo)
+			}
+
+		}
+
 	}
 
 }

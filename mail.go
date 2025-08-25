@@ -82,11 +82,6 @@ type Email struct {
 	Mailbox				string
 }
 
-type SendResp struct {
-	ReplyCode			int
-	TLSInfo				string
-}
-
 type OutboundMail struct {
 	SendingHost				string
 	Username				string
@@ -2760,44 +2755,69 @@ func smtpReplyCode(s []byte) (int, bool) {
 
 }
 
-func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
+type SentMailReceivingServer struct {
+	// the error if there was one
+	Error				error
+	// the reply code from the receiving server
+	ReplyCode			int
+	// the TLS information of the connection to the server
+	TLSInfo				string
+}
 
-	var send_resp SendResp
+type SentMail struct {
+	// any error before connecting to receiving servers if there was one
+	Error				error
+	// the headers of the email as the receiving servers received
+	Headers				[]byte
+	// the servers that were specified to receive the email
+	// with the response returned by each or the error
+	ReceivingServers		map[string] *SentMailReceivingServer
+	// the list of addresses that successfully received the email
+	AddressesThatReceivedEmail	[]string
+}
 
-	if (outbound_mail.From.String() == "") {
-		return errors.New("requires a from address"), send_resp, nil
+func SendMail(outbound_mail *OutboundMail) (SentMail) {
+
+	var sent_mail SentMail
+	sent_mail.ReceivingServers = make(map[string] *SentMailReceivingServer)
+
+	if ((*outbound_mail).From.String() == "") {
+		sent_mail.Error = errors.New("requires a from address")
+		return sent_mail
 	}
 
 	// Setup headers
-	headers := make(map[string]string)
+	headers := make(map[string] string)
 
 	// copy defined headers to headers that are sent
-	for k,v := range outbound_mail.Headers {
+	for k,v := range (*outbound_mail).Headers {
 		headers[strings.ToLower(k)] = v
 	}
 
-	if (len(outbound_mail.DkimPrivateKey) > 0 && outbound_mail.DkimDomain != "") {
+	if (len((*outbound_mail).DkimPrivateKey) > 0 && (*outbound_mail).DkimDomain != "") {
 
 		var dkim_header = bytes.Buffer{}
 		dkim_header.Write([]byte("DKIM-Signature: v=1;"))
 
-		if (outbound_mail.DkimSigningAlgo == "") {
+		if ((*outbound_mail).DkimSigningAlgo == "") {
 			// use default
-			outbound_mail.DkimSigningAlgo = "rsa-sha256"
+			(*outbound_mail).DkimSigningAlgo = "rsa-sha256"
 		}
 
-		if (outbound_mail.DkimSigningAlgo != "rsa-sha256") {
-			return errors.New("invalid DkimSigningAlgo"), send_resp, nil
+		if ((*outbound_mail).DkimSigningAlgo != "rsa-sha256") {
+			sent_mail.Error = errors.New("invalid DkimSigningAlgo")
+		return sent_mail
 		}
 
-		if (outbound_mail.DkimExpireSeconds == 0) {
+		if ((*outbound_mail).DkimExpireSeconds == 0) {
 			// set to 60 minutes by default
-			outbound_mail.DkimExpireSeconds = 3600
+			(*outbound_mail).DkimExpireSeconds = 3600
 		}
 
-		var l = strings.Split(outbound_mail.DkimDomain, "._domainkey.")
+		var l = strings.Split((*outbound_mail).DkimDomain, "._domainkey.")
 		if (len(l) != 2) {
-			return errors.New("invalid DkimDomain, must be selector._domainkey.domain.tld"), send_resp, nil
+			sent_mail.Error = errors.New("invalid DkimDomain, must be selector._domainkey.domain.tld")
+			return sent_mail
 		}
 		var selector = l[0]
 		var domain = l[1]
@@ -2806,20 +2826,22 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		// t = timestamp
 		// x = expire time
 		now := int(time.Now().Unix())
-		dkim_header.Write([]byte(" a=rsa-sha256; q=dns/txt; c=relaxed/simple;\r\n s=" + selector + "; d=" + domain + "; t=" + strconv.Itoa(now) + "; x=" + strconv.Itoa(now + outbound_mail.DkimExpireSeconds) + "; h=from;"))
+		dkim_header.Write([]byte(" a=rsa-sha256; q=dns/txt; c=relaxed/simple;\r\n s=" + selector + "; d=" + domain + "; t=" + strconv.Itoa(now) + "; x=" + strconv.Itoa(now + (*outbound_mail).DkimExpireSeconds) + "; h=from;"))
 
 		// create DKIM header
 		var privateKey *rsa.PrivateKey
 
-		d, _ := pem.Decode(outbound_mail.DkimPrivateKey)
+		d, _ := pem.Decode((*outbound_mail).DkimPrivateKey)
 		if (d == nil) {
-			return errors.New("error parsing DKIM private key"), send_resp, nil
+			sent_mail.Error = errors.New("error parsing DKIM private key")
+			return sent_mail
 		}
 
 		// try to parse it as PKCS1 otherwise try PKCS8
 		if key, err := x509.ParsePKCS1PrivateKey(d.Bytes); err != nil {
 			if key, err := x509.ParsePKCS8PrivateKey(d.Bytes); err != nil {
-				return err, send_resp, nil
+				sent_mail.Error = err
+				return sent_mail
 			} else {
 				privateKey = key.(*rsa.PrivateKey)
 			}
@@ -2845,7 +2867,7 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 			remove all \r\n at the end then add \r\n (\r\n is CRLF)
 		*/
 
-		canonicalized_body = bytes.TrimRight(outbound_mail.Body, "\r\n")
+		canonicalized_body = bytes.TrimRight((*outbound_mail).Body, "\r\n")
 
 		canonicalized_body = append(canonicalized_body, '\r')
 		canonicalized_body = append(canonicalized_body, '\n')
@@ -2874,7 +2896,7 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		// relaxed header canonicalization
 		// lowercase key names
 		// no spaces on either side of :
-		canonicalized_header_string = "from:" + outbound_mail.From.String() + "\r\n"
+		canonicalized_header_string = "from:" + (*outbound_mail).From.String() + "\r\n"
 
 		// add dkim_header with b= and an empty value to canonicalized_header_string
 		// replacing each header key with the same with lower case values and 
@@ -2893,7 +2915,8 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		h1.Write([]byte(canonicalized_header_string))
 		sig, err := rsa.SignPKCS1v15(rand.Reader, privateKey, h2, h1.Sum(nil))
 		if err != nil {
-			return err, send_resp, nil
+			sent_mail.Error = err
+			return sent_mail
 		}
 		var b_value = base64.StdEncoding.EncodeToString(sig)
 
@@ -2914,148 +2937,158 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 	}
 
-	headers["from"] = outbound_mail.From.String()
+	headers["from"] = (*outbound_mail).From.String()
 
-	if (len(outbound_mail.To) > 0) {
+	if (len((*outbound_mail).To) > 0) {
 		var th = ""
-		for i := range outbound_mail.To {
-			th += outbound_mail.To[i].String() + ","
+		for i := range (*outbound_mail).To {
+			th += (*outbound_mail).To[i].String() + ","
 		}
 		th = strings.TrimRight(th, ",")
 		headers["to"] = th
 	}
 
-	if (len(outbound_mail.Cc) > 0) {
+	if (len((*outbound_mail).Cc) > 0) {
 		var cch = ""
-		for i := range outbound_mail.Cc {
-			cch += outbound_mail.Cc[i].String() + ","
+		for i := range (*outbound_mail).Cc {
+			cch += (*outbound_mail).Cc[i].String() + ","
 		}
 		cch = strings.TrimRight(cch, ",")
 		headers["cc"] = cch
 	}
 
-	if (len(outbound_mail.Bcc) > 0) {
+	if (len((*outbound_mail).Bcc) > 0) {
 		var bcch = ""
-		for i := range outbound_mail.Bcc {
-			bcch += outbound_mail.Bcc[i].String() + ","
+		for i := range (*outbound_mail).Bcc {
+			bcch += (*outbound_mail).Bcc[i].String() + ","
 		}
 		bcch = strings.TrimRight(bcch, ",")
 		headers["bcc"] = bcch
 	}
 
 
-	headers["subject"] = outbound_mail.Subj
+	headers["subject"] = (*outbound_mail).Subj
 
-	if (outbound_mail.SendingHost == "") {
+	if ((*outbound_mail).SendingHost == "") {
 		// set to localhost
-		outbound_mail.SendingHost = "localhost"
+		(*outbound_mail).SendingHost = "localhost"
 	}
-	if (outbound_mail.Port == 0) {
+	if ((*outbound_mail).Port == 0) {
 		// set to 25
-		outbound_mail.Port = 25
+		(*outbound_mail).Port = 25
 	}
-	if (outbound_mail.ReceivingHost == "") {
 
-		// set from to address
-		if (len(outbound_mail.To) > 0) {
+	// add all to, cc and bcc addresses
+	var rcpt_to_addresses []mail.Address
 
-			p := strings.Split(outbound_mail.To[0].Address, "@")
-			outbound_mail.ReceivingHost = p[1]
+	for i := range (*outbound_mail).To {
+		rcpt_to_addresses = append(rcpt_to_addresses, (*outbound_mail).To[i])
+	}
 
-			_, ip_parse_err := netip.ParseAddr(outbound_mail.ReceivingHost)
+	for i := range (*outbound_mail).Cc {
+		rcpt_to_addresses = append(rcpt_to_addresses, (*outbound_mail).Cc[i])
+	}
 
-			if (ip_parse_err != nil) {
+	for i := range (*outbound_mail).Bcc {
+		rcpt_to_addresses = append(rcpt_to_addresses, (*outbound_mail).Bcc[i])
+	}
 
-				// get mx record to get address of SMTP server
-				var r net.Resolver
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second * 10)
-				defer cancel()
-				mx, mx_err := r.LookupMX(ctx, p[1])
+	// map[server_hostname] []mail.Address
+	var servers_with_addresses = make(map[string] []mail.Address)
 
-				if (mx_err == nil) {
-					if (len(mx) > 0) {
-						outbound_mail.ReceivingHost = mx[0].Host
-					} else {
-						return errors.New("No MX records found for " + outbound_mail.To[0].String()), send_resp, nil
-					}
-				} else {
-					return mx_err, send_resp, nil
-				}
+	for l := range rcpt_to_addresses {
 
+		var a = rcpt_to_addresses[l]
+
+		if ((*outbound_mail).ReceivingHost != "") {
+
+			// if there is a ReceivingHost
+			// use it for all addresses
+			servers_with_addresses[(*outbound_mail).ReceivingHost] = append(servers_with_addresses[(*outbound_mail).ReceivingHost], a)
+
+			if (sent_mail.ReceivingServers[(*outbound_mail).ReceivingHost] == nil) {
+				// add to sent_mail.ReceivingServers
+				var receiving_server SentMailReceivingServer
+				sent_mail.ReceivingServers[(*outbound_mail).ReceivingHost] = &receiving_server
 			}
 
 		} else {
-			return errors.New("No To address or ReceivingHost set."), send_resp, nil
+
+			// send using host of domain in receiving address
+			_, domain := GetLocalAndDomain(a.Address)
+			servers_with_addresses[domain] = append(servers_with_addresses[domain], a)
+
+			if (sent_mail.ReceivingServers[domain] == nil) {
+				// add to sent_mail.ReceivingServers
+				var receiving_server SentMailReceivingServer
+				sent_mail.ReceivingServers[domain] = &receiving_server
+			}
+
 		}
 
 	}
+
+	for connect_host := range servers_with_addresses {
+		fmt.Println("connect_host", connect_host)
+		new_socket_SendMail(outbound_mail, connect_host, servers_with_addresses[connect_host], &sent_mail, headers)
+	}
+
+	return sent_mail
+
+}
+
+func new_socket_SendMail(outbound_mail *OutboundMail, connect_host string, to_addresses []mail.Address, sent_mail *SentMail, headers map[string] string) {
+
+	// connect to one server and send an email with RCPT TO of each address in to_addresses
+	// the addresses in to_addresses must be local of that server
+
+	var actual_connect_host = connect_host
+
+	// check if connect_host is an IP address
+	_, ip_parse_err := netip.ParseAddr(connect_host)
+
+	if (ip_parse_err != nil) {
+
+		// check if subdomain
+		if (strings.Count(connect_host, ".") == 1) {
+
+			// connect_host is a domain name without a subdomain
+
+			// get mx record of connect_host
+			var r net.Resolver
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second * 10)
+			defer cancel()
+			mx, mx_err := r.LookupMX(ctx, connect_host)
+
+			if (mx_err == nil) {
+				if (len(mx) > 0) {
+					// use the returned MX record
+					actual_connect_host = mx[0].Host
+				}
+			} else {
+				// there was no MX record or there was an error connecting to the DNS server
+				(*(*sent_mail).ReceivingServers[connect_host]).Error = mx_err
+				return
+			}
+
+		}
+
+	}
+
+	var connect_string = actual_connect_host + ":" + strconv.FormatInt(int64((*outbound_mail).Port), 10)
 
 	// Connect to the SMTP Server
-	connect_hostname := outbound_mail.ReceivingHost + ":" + strconv.FormatInt(int64(outbound_mail.Port), 10)
-
-	// the server may be using STARTTLS and a different TLS certificate with the valid servername regardless of ReceivingHost
-	var all_same_receiving_domain = true
-	var servername_from_receiving_addresses = ""
-
-	for i := range outbound_mail.To {
-
-		a := outbound_mail.To[i].Address
-
-		s := strings.Split(a, "@")
-
-		if (servername_from_receiving_addresses != "" && servername_from_receiving_addresses != s[1]) {
-			// all email addresses are not the same domain
-			all_same_receiving_domain = false
-		}
-
-	}
-
-	for i := range outbound_mail.Cc {
-
-		a := outbound_mail.Cc[i].Address
-
-		s := strings.Split(a, "@")
-
-		if (servername_from_receiving_addresses != "" && servername_from_receiving_addresses != s[1]) {
-			// all email addresses are not the same domain
-			all_same_receiving_domain = false
-		}
-
-	}
-
-	for i := range outbound_mail.Bcc {
-
-		a := outbound_mail.Bcc[i].Address
-
-		s := strings.Split(a, "@")
-
-		if (servername_from_receiving_addresses != "" && servername_from_receiving_addresses != s[1]) {
-			// all email addresses are not the same domain
-			all_same_receiving_domain = false
-		}
-
-	}
-
-	if (outbound_mail.RequireServerNameOfReceivingAddresses == true) {
-
-		if (all_same_receiving_domain == false) {
-
-			return errors.New("Receiving email addresses (TO, CC and BCC) must all be the same if RequireServerNameOfReceivingAddresses is true"), send_resp, nil
-
-		}
-
-	}
-
 	var conn net.Conn
 	var tlsconfig *tls.Config
 
-	if (outbound_mail.Port == 25) {
+	if ((*outbound_mail).Port == 25) {
 
 		// port 25 never uses TLS without STARTTLS
-		nconn, err := net.Dial("tcp", connect_hostname)
+		nconn, err := net.Dial("tcp", connect_string)
 		if err != nil {
 			//fmt.Println(err)
-			return err, send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = err
+			return
 		}
 		conn = nconn
 
@@ -3063,24 +3096,25 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 		// port 465 and 587 should only accept TLS connections, so should any non standard port
 
-		if (outbound_mail.ReceivingHostTlsConfig == nil) {
+		if ((*outbound_mail).ReceivingHostTlsConfig == nil) {
 
 			// OS TLS config
 			// read this - https://github.com/golang/go/issues/61483
 			tlsconfig = &tls.Config {
-				ServerName: outbound_mail.ReceivingHost,
+				ServerName: connect_host,
 				ClientAuth: tls.RequireAndVerifyClientCert,
 			}
 
 		} else {
 			// supplied tls config
-			tlsconfig = outbound_mail.ReceivingHostTlsConfig
+			tlsconfig = (*outbound_mail).ReceivingHostTlsConfig
 		}
 
-		nconn, err := tls.Dial("tcp", connect_hostname, tlsconfig)
+		nconn, err := tls.Dial("tcp", connect_string, tlsconfig)
 		if err != nil {
 			//fmt.Println(err)
-			return err, send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = err
+			return
 		}
 		conn = nconn
 
@@ -3097,10 +3131,11 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
+		(*(*sent_mail).ReceivingServers[connect_host]).ReplyCode, is_multiline = smtpReplyCode(read_data)
 
 		if (read_err != nil) {
-			return read_err, send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = read_err
+			return
 		}
 
 		reply_string += string(read_data) + "\n"
@@ -3113,13 +3148,14 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		if (len(reply_string) > 512 * 30) {
 			// server has returned too many lines
 			// to be considered reasonable
-			return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server sent too many reply lines, " + reply_string)
+			return
 		}
 
 	}
 
 	// send EHLO command and read response
-	conn.Write([]byte("EHLO " + outbound_mail.SendingHost + "\r\n"))
+	conn.Write([]byte("EHLO " + (*outbound_mail).SendingHost + "\r\n"))
 
 	// after EHLO the server may respond with ESMTP extensions
 	var esmtps []Esmtp
@@ -3129,10 +3165,11 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
+		(*(*sent_mail).ReceivingServers[connect_host]).ReplyCode, is_multiline = smtpReplyCode(read_data)
 
 		if (read_err != nil) {
-			return read_err, send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = read_err
+			return
 		}
 
 		reply_string += string(read_data) + "\n"
@@ -3187,13 +3224,15 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		if (len(reply_string) > 512 * 30) {
 			// server has returned too many lines
 			// to be considered reasonable
-			return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server sent too many reply lines, " + reply_string)
+			return
 		}
 
 	}
 
-	if (send_resp.ReplyCode != 250) {
-		return errors.New("smtp server did not respond with 250 after EHLO command, " + reply_string), send_resp, nil
+	if ((*(*sent_mail).ReceivingServers[connect_host]).ReplyCode != 250) {
+		(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not respond with 250 after EHLO command, " + reply_string)
+		return
 	}
 
 	if (len(esmtps) > 0) {
@@ -3227,10 +3266,11 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 					read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-					send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
+					(*(*sent_mail).ReceivingServers[connect_host]).ReplyCode, is_multiline = smtpReplyCode(read_data)
 
 					if (read_err != nil) {
-						return read_err, send_resp, nil
+						(*(*sent_mail).ReceivingServers[connect_host]).Error = read_err
+						return
 					}
 
 					reply_string += string(read_data) + "\n"
@@ -3243,20 +3283,22 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 					if (len(reply_string) > 512 * 30) {
 						// server has returned too many lines
 						// to be considered reasonable
-						return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
+						(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server sent too many reply lines, " + reply_string)
+						return
 					}
 
 				}
 
-				if (send_resp.ReplyCode != 220) {
-					return errors.New("smtp server did not respond with 220 after STARTTLS, " + reply_string), send_resp, nil
+				if ((*(*sent_mail).ReceivingServers[connect_host]).ReplyCode != 220) {
+					(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not respond with 220 after STARTTLS, " + reply_string)
+					return
 				}
 
-				if (outbound_mail.ReceivingHostTlsConfig == nil) {
+				if ((*outbound_mail).ReceivingHostTlsConfig == nil) {
 
-					// use ReceivingHost as ServerName
+					// use connect_host as ServerName
 					tlsconfig = &tls.Config {
-						ServerName: outbound_mail.ReceivingHost,
+						ServerName: connect_host,
 						// this is used because based on OutboundMail.RequireServerNameOfReceivingAddresses, VerifyConnection is used after STARTTLS succeeds
 						InsecureSkipVerify: true,
 						ClientAuth: tls.RequestClientCert,
@@ -3264,10 +3306,10 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 				} else {
 					// supplied tls config
-					tlsconfig = outbound_mail.ReceivingHostTlsConfig
+					tlsconfig = (*outbound_mail).ReceivingHostTlsConfig
 				}
 
-				if (outbound_mail.RequireTLS == false) {
+				if ((*outbound_mail).RequireTLS == false) {
 
 					// the TLS upgrade can happen with only RequestClientCert
 					(*tlsconfig).ClientAuth = tls.RequestClientCert
@@ -3282,17 +3324,18 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 				conn = net.Conn(tlsConn)
 
 				// send HELO command and read response
-				conn.Write([]byte("HELO " + outbound_mail.SendingHost + "\r\n"))
+				conn.Write([]byte("HELO " + (*outbound_mail).SendingHost + "\r\n"))
 
 				reply_string = ""
 				for (true) {
 
 					read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-					send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
+					(*(*sent_mail).ReceivingServers[connect_host]).ReplyCode, is_multiline = smtpReplyCode(read_data)
 
 					if (read_err != nil) {
-						return read_err, send_resp, nil
+						(*(*sent_mail).ReceivingServers[connect_host]).Error = read_err
+						return
 					}
 
 					reply_string += string(read_data) + "\n"
@@ -3305,13 +3348,15 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 					if (len(reply_string) > 512 * 30) {
 						// server has returned too many lines
 						// to be considered reasonable
-						return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
+						(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server sent too many reply lines, " + reply_string)
+						return
 					}
 
 				}
 
-				if (send_resp.ReplyCode != 250) {
-					return errors.New("smtp server did not respond with 250 after STARTTLS routine then HELO command, " + reply_string), send_resp, nil
+				if ((*(*sent_mail).ReceivingServers[connect_host]).ReplyCode != 250) {
+					(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not respond with 250 after STARTTLS routine then HELO command, " + reply_string)
+					return
 				}
 
 			}
@@ -3320,42 +3365,47 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 	}
 
-	if (outbound_mail.RequireTLS == true) {
+	if ((*outbound_mail).RequireTLS == true) {
 
 		// requiring TLS does not mean requiring that the server name matches the certificate
 
 		if (fmt.Sprintf("%T", conn) != "*tls.Conn") {
 			// tls is not valid
-			return errors.New("smtp server did not provide TLS or STARTTLS."), send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not provide TLS or STARTTLS.")
+			return
 		}
 
 		conn_state := conn.(*tls.Conn).ConnectionState()
 		if (conn_state.HandshakeComplete == true) {
 			// tls is valid
 		} else {
-			return errors.New("smtp server did not provide TLS or STARTTLS."), send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not provide TLS or STARTTLS.")
+			return
 		}
 
 	}
 
-	if (outbound_mail.RequireServerNameOfReceivingAddresses == true) {
+	if ((*outbound_mail).RequireServerNameOfReceivingAddresses == true) {
 
 		// this also works with SAN lists that can include IP addresses
 
 		if (fmt.Sprintf("%T", conn) != "*tls.Conn") {
 			// tls is not valid
-			return errors.New("smtp server did not provide TLS or STARTTLS"), send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not provide TLS or STARTTLS")
+			return
 		}
 
 		conn_state := conn.(*tls.Conn).ConnectionState()
 
-		if (conn_state.ServerName != outbound_mail.ReceivingHost) {
-			// TLS is valid but the ServerName does not match outbound_Mail.ReceivingHost
-			return errors.New("smtp server did not provide a valid ServerName that matches ReceivingHost."), send_resp, nil
+		if (conn_state.ServerName != connect_host) {
+			// TLS is valid but the ServerName does not match connect_host
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not provide a valid ServerName that matches " + connect_host + ".")
+			return
 		} else if (conn_state.HandshakeComplete == true) {
 			// tls is valid
 		} else {
-			return errors.New("smtp server did not provide TLS or STARTTLS."), send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not provide TLS or STARTTLS.")
+			return
 		}
 
 	}
@@ -3364,16 +3414,16 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		// store the tls connection validation information
 		// and the hostname and IP address
 		conn_state := conn.(*tls.Conn).ConnectionState()
-		send_resp.TLSInfo = "TLS ServerName: " + conn_state.ServerName + " provided from connected server with Hostname: " + connect_hostname + " and IP Address: " + conn.RemoteAddr().String()
+		(*(*sent_mail).ReceivingServers[connect_host]).TLSInfo = "TLS ServerName: " + conn_state.ServerName + " provided from connected server: " + connect_string + " and IP Address: " + conn.RemoteAddr().String()
 	} else {
 		// store that no TLS was used
 		// and the hostname and IP address
-		send_resp.TLSInfo = "No TLS provided from connected server with Hostname: " + connect_hostname + " and IP Address: " + conn.RemoteAddr().String()
+		(*(*sent_mail).ReceivingServers[connect_host]).TLSInfo = "No TLS provided from connected server: " + connect_string + " and IP Address: " + conn.RemoteAddr().String()
 	}
 
 
 	// send username and password if not nil via a supported ESMTP method provided by the server
-	if (outbound_mail.Username != "" || outbound_mail.Password != "") {
+	if ((*outbound_mail).Username != "" || (*outbound_mail).Password != "") {
 
 		var auths_allowed Esmtp
 		for i := range esmtps {
@@ -3390,13 +3440,13 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 				// use AUTH PLAIN
 				// send username + null character + password base64 encoded
-				var login_string = make([]byte, len(outbound_mail.Username) + 1 + len(outbound_mail.Password))
-				for c := range outbound_mail.Username {
-					login_string[c] = outbound_mail.Username[c]
+				var login_string = make([]byte, len((*outbound_mail).Username) + 1 + len((*outbound_mail).Password))
+				for c := range (*outbound_mail).Username {
+					login_string[c] = (*outbound_mail).Username[c]
 				}
-				login_string[len(outbound_mail.Username)] = 0
-				for c := range outbound_mail.Password {
-					login_string[len(outbound_mail.Username) + 1 + c] = outbound_mail.Password[c]
+				login_string[len((*outbound_mail).Username)] = 0
+				for c := range (*outbound_mail).Password {
+					login_string[len((*outbound_mail).Username) + 1 + c] = (*outbound_mail).Password[c]
 				}
 
 				b64_string := base64.StdEncoding.EncodeToString(login_string)
@@ -3409,10 +3459,11 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 					read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-					send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
+					(*(*sent_mail).ReceivingServers[connect_host]).ReplyCode, is_multiline = smtpReplyCode(read_data)
 
 					if (read_err != nil) {
-						return read_err, send_resp, nil
+						(*(*sent_mail).ReceivingServers[connect_host]).Error = read_err
+						return
 					}
 
 					reply_string += string(read_data) + "\n"
@@ -3425,13 +3476,15 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 					if (len(reply_string) > 512 * 30) {
 						// server has returned too many lines
 						// to be considered reasonable
-						return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
+						(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server sent too many reply lines, " + reply_string)
+						return
 					}
 
 				}
 
-				if (send_resp.ReplyCode != 235) {
-					return errors.New("smtp server did not respond with 235 after AUTH PLAIN, " + reply_string), send_resp, nil
+				if ((*(*sent_mail).ReceivingServers[connect_host]).ReplyCode != 235) {
+					(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not respond with 235 after AUTH PLAIN, " + reply_string)
+					return
 				}
 
 				//fmt.Println("AUTH PLAIN response (235 means authorized)")
@@ -3445,17 +3498,18 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 	}
 
 	// send MAIL FROM command and read response
-	conn.Write([]byte("MAIL FROM:<" + outbound_mail.From.Address + ">\r\n"))
+	conn.Write([]byte("MAIL FROM:<" + (*outbound_mail).From.Address + ">\r\n"))
 
 	reply_string = ""
 	for (true) {
 
 		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
+		(*(*sent_mail).ReceivingServers[connect_host]).ReplyCode, is_multiline = smtpReplyCode(read_data)
 
 		if (read_err != nil) {
-			return read_err, send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = read_err
+			return
 		}
 
 		reply_string += string(read_data) + "\n"
@@ -3485,29 +3539,32 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		if (len(reply_string) > 512 * 30) {
 			// server has returned too many lines
 			// to be considered reasonable
-			return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server sent too many reply lines, " + reply_string)
+			return
 		}
 
 	}
 
-	if (send_resp.ReplyCode != 250) {
-		return errors.New("smtp server did not respond with 250 after MAIL FROM command, " + reply_string), send_resp, nil
+	if ((*(*sent_mail).ReceivingServers[connect_host]).ReplyCode != 250) {
+		(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not respond with 250 after MAIL FROM command, " + reply_string)
+		return
 	}
 
-	for i := range outbound_mail.To {
+	for i := range to_addresses {
 
 		// send RCPT TO command and read response
-		conn.Write([]byte("RCPT TO:<" + outbound_mail.To[i].Address + ">\r\n"))
+		conn.Write([]byte("RCPT TO:<" + to_addresses[i].Address + ">\r\n"))
 
 		reply_string = ""
 		for (true) {
 
 			read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-			send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
+			(*(*sent_mail).ReceivingServers[connect_host]).ReplyCode, is_multiline = smtpReplyCode(read_data)
 
 			if (read_err != nil) {
-				return read_err, send_resp, nil
+				(*(*sent_mail).ReceivingServers[connect_host]).Error = read_err
+				return
 			}
 
 			reply_string += string(read_data) + "\n"
@@ -3520,87 +3577,15 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 			if (len(reply_string) > 512 * 30) {
 				// server has returned too many lines
 				// to be considered reasonable
-				return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
+				(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server sent too many reply lines, " + reply_string)
+				return
 			}
 
 		}
 
-		if (send_resp.ReplyCode != 250) {
-			return errors.New("smtp server did not respond with 250 after RCPT TO command, " + reply_string), send_resp, nil
-		}
-
-	}
-
-	for i := range outbound_mail.Cc {
-
-		// send RCPT TO command and read response
-		conn.Write([]byte("RCPT TO:<" + outbound_mail.Cc[i].Address + ">\r\n"))
-
-		reply_string = ""
-		for (true) {
-
-			read_err, _, read_data = smtp_client_read_command_response_line(conn)
-
-			send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
-
-			if (read_err != nil) {
-				return read_err, send_resp, nil
-			}
-
-			reply_string += string(read_data) + "\n"
-
-			if (is_multiline == false) {
-				// finished
-				break
-			}
-
-			if (len(reply_string) > 512 * 30) {
-				// server has returned too many lines
-				// to be considered reasonable
-				return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
-			}
-
-		}
-
-		if (send_resp.ReplyCode != 250) {
-			return errors.New("smtp server did not respond with 250 after RCPT TO command, " + reply_string), send_resp, nil
-		}
-
-	}
-
-	for i := range outbound_mail.Bcc {
-
-		// send RCPT TO command and read response
-		conn.Write([]byte("RCPT TO:<" + outbound_mail.Bcc[i].Address + ">\r\n"))
-
-		reply_string = ""
-		for (true) {
-
-			read_err, _, read_data = smtp_client_read_command_response_line(conn)
-
-			send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
-
-			if (read_err != nil) {
-				return read_err, send_resp, nil
-			}
-
-			reply_string += string(read_data) + "\n"
-
-			if (is_multiline == false) {
-				// finished
-				break
-			}
-
-			if (len(reply_string) > 512 * 30) {
-				// server has returned too many lines
-				// to be considered reasonable
-				return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
-			}
-
-		}
-
-		if (send_resp.ReplyCode != 250) {
-			return errors.New("smtp server did not respond with 250 after RCPT TO command, " + reply_string), send_resp, nil
+		if ((*(*sent_mail).ReceivingServers[connect_host]).ReplyCode != 250) {
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not respond with 250 after RCPT TO command, " + reply_string)
+			return
 		}
 
 	}
@@ -3613,10 +3598,11 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 
 		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
+		(*(*sent_mail).ReceivingServers[connect_host]).ReplyCode, is_multiline = smtpReplyCode(read_data)
 
 		if (read_err != nil) {
-			return read_err, send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = read_err
+			return
 		}
 
 		reply_string += string(read_data) + "\n"
@@ -3629,13 +3615,15 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		if (len(reply_string) > 512 * 30) {
 			// server has returned too many lines
 			// to be considered reasonable
-			return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server sent too many reply lines, " + reply_string)
+			return
 		}
 
 	}
 
-	if (send_resp.ReplyCode != 354) {
-		return errors.New("smtp server did not respond with 354 after DATA command, " + reply_string), send_resp, nil
+	if ((*(*sent_mail).ReceivingServers[connect_host]).ReplyCode != 354) {
+		(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server did not respond with 354 after DATA command, " + reply_string)
+		return
 	}
 
 	buf := bytes.Buffer{}
@@ -3644,31 +3632,35 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 	// required in this order for DKIM validation, often
 	buf.Write([]byte("from: " + headers["from"] + "\r\n"))
 	conn.Write([]byte("from: " + headers["from"] + "\r\n"))
-	delete(headers, "from")
 
-	// send DATA and read response
+	// send the other headers
 	for k,v := range headers {
+
+		if (k == "from") {
+			// already sent
+			continue
+		}
+
 		buf.Write([]byte(k + ": " + v + "\r\n"))
 		conn.Write([]byte(k + ": " + v + "\r\n"))
 	}
 
+	// send the email body
 	conn.Write([]byte("\r\n"))
-	conn.Write(outbound_mail.Body)
+	conn.Write((*outbound_mail).Body)
 	conn.Write([]byte("\r\n.\r\n"))
 
-	// do not write \r\n.\r\n to the output, only to the server
-	buf.Write([]byte("\r\n"))
-	buf.Write(outbound_mail.Body)
-
+	// read the response
 	reply_string = ""
 	for (true) {
 
 		read_err, _, read_data = smtp_client_read_command_response_line(conn)
 
-		send_resp.ReplyCode, is_multiline = smtpReplyCode(read_data)
+		(*(*sent_mail).ReceivingServers[connect_host]).ReplyCode, is_multiline = smtpReplyCode(read_data)
 
 		if (read_err != nil) {
-			return read_err, send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = read_err
+			return
 		}
 
 		reply_string += string(read_data) + "\n"
@@ -3681,7 +3673,8 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 		if (len(reply_string) > 512 * 30) {
 			// server has returned too many lines
 			// to be considered reasonable
-			return errors.New("smtp server sent too many reply lines, " + reply_string), send_resp, nil
+			(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New("smtp server sent too many reply lines, " + reply_string)
+			return
 		}
 
 	}
@@ -3689,11 +3682,28 @@ func SendMail(outbound_mail OutboundMail) (error, SendResp, []byte) {
 	conn.Write([]byte("QUIT\r\n"))
 	conn.Close()
 
-	if (send_resp.ReplyCode == 250) {
-		return nil, send_resp, buf.Bytes()
+	// add the headers that were sent to the server
+	(*sent_mail).Headers = buf.Bytes()
+
+	if ((*(*sent_mail).ReceivingServers[connect_host]).ReplyCode == 250) {
+
+		// email sent successfully to this server's RCPT TO addresses
+
+		for i := range to_addresses {
+
+			// add each address to sent_mail.AddressesThatReceivedEmail
+			(*sent_mail).AddressesThatReceivedEmail = append((*sent_mail).AddressesThatReceivedEmail, to_addresses[i].Address)
+
+		}
+
+		return
+
 	} else {
-		// return error
-		return errors.New(reply_string), send_resp, buf.Bytes()
+
+		// return error from receiving server
+		(*(*sent_mail).ReceivingServers[connect_host]).Error = errors.New(reply_string)
+		return
+
 	}
 
 }
