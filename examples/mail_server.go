@@ -261,86 +261,6 @@ func main() {
 
 		}
 
-		// add addresses from the to: header
-		var tos = strings.Split((*headers)["to"], ",")
-		for a := range(tos) {
-
-			// add each bcc address
-			tf, tf_err := mail.ParseAddress(tos[a])
-
-			if tf_err == nil {
-
-				already_exists := false
-				for e := range(send_addresses) {
-					if (send_addresses[e] == *tf) {
-						// already in send_addresses
-						already_exists = true
-						break
-					}
-				}
-
-				if (already_exists == false) {
-					send_addresses = append(send_addresses, (*tf))
-				}
-
-			}
-
-		}
-
-		// add addresses from the bcc: header
-		var bcc_header = (*headers)["bcc"]
-		// remove the BCC headers to not reveal the bcc addresses
-		delete((*headers), "bcc")
-		var bccs = strings.Split(bcc_header, ",")
-		for a := range(bccs) {
-
-			// add each bcc address
-			tf, tf_err := mail.ParseAddress(bccs[a])
-
-			if tf_err == nil {
-
-				already_exists := false
-				for e := range(send_addresses) {
-					if (send_addresses[e] == *tf) {
-						// already in send_addresses
-						already_exists = true
-						break
-					}
-				}
-
-				if (already_exists == false) {
-					send_addresses = append(send_addresses, (*tf))
-				}
-
-			}
-
-		}
-
-		// add addresses from the cc: header
-		var ccs = strings.Split((*headers)["cc"], ",")
-		for a := range(ccs) {
-
-			// add each cc address
-			tf, tf_err := mail.ParseAddress(ccs[a])
-			if tf_err == nil {
-
-				already_exists := false
-				for e := range(send_addresses) {
-					if (send_addresses[e] == *tf) {
-						// already in send_addresses
-						already_exists = true
-						break
-					}
-				}
-
-				if (already_exists == false) {
-					send_addresses = append(send_addresses, (*tf))
-				}
-
-			}
-
-		}
-
 		// get the raw body as bytes
 		var h_split_pos = bytes.Index((*email_data), []byte("\r\n\r\n"))
 		var end_split_pos = bytes.Index((*email_data), []byte("\r\n.\r\n"))
@@ -354,64 +274,59 @@ func main() {
 			end_split_pos = len((*email_data)) - 1
 		}
 
-		pf, pf_err := mail.ParseAddress((*headers)["from"])
-		if pf_err == nil {
+		for a := range(send_addresses) {
 
-			for a := range(send_addresses) {
+			if (users[send_addresses[a].Address] != "") {
+				// send to local domain
+				console_output += "\nstoring at local domain:\n" + string(*email_data)
+			} else {
 
-				if (users[send_addresses[a].Address] != "") {
-					// send to local domain
-					console_output += "\nstoring at local domain:\n" + string(*email_data)
-				} else {
+				if ((*esmtp_authed) == false) {
+					// never send to external domains unless esmtp authed
+					console_output += "\nnot sending to external domain, not esmtp authed"
+					continue
+				}
 
-					if ((*esmtp_authed) == false) {
-						// never send to external domains unless esmtp authed
-						console_output += "\nnot sending to external domain, not esmtp authed"
-						continue
-					}
+				// send via SMTP
+				var om gomail.OutboundMail
+				om.DkimPrivateKey = pk
+				om.DkimDomain = "aaaaaaaaaaaaaaaaaa._domainkey.domain.tld"
+				om.From = (*pf)
+				om.Subj = (*headers)["subject"]
+				om.Body = (*email_data)[h_split_pos:end_split_pos]
+				// email will not send unless the server provides TLS or STARTTLS
+				om.RequireTLS = true
 
-					// send via SMTP
-					var om gomail.OutboundMail
-					om.DkimPrivateKey = pk
-					om.DkimDomain = "aaaaaaaaaaaaaaaaaa._domainkey.domain.tld"
-					om.From = (*pf)
-					om.Subj = (*headers)["subject"]
-					om.Body = (*email_data)[h_split_pos:end_split_pos]
-					// email will not send unless the server provides TLS or STARTTLS
-					om.RequireTLS = true
+				// add headers
+				om.Headers = (*headers)
 
-					// add headers
-					om.Headers = (*headers)
+				// add to address
+				om.To = []mail.Address{send_addresses[a]}
 
-					// add to address
-					om.To = []mail.Address{send_addresses[a]}
+				err, send_resp, _ := gomail.SendMail(om)
 
-					err, send_resp, _ := gomail.SendMail(om)
+				console_output += "\nsent email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj + "\nReply Code: " + strconv.Itoa(send_resp.ReplyCode) + "\n" + send_resp.TLSInfo
 
-					console_output += "\nsent email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj + "\nReply Code: " + strconv.Itoa(send_resp.ReplyCode) + "\n" + send_resp.TLSInfo
+				if (err != nil) {
+					console_output += "\ngomail.SendMail() error: " + err.Error()
 
-					if (err != nil) {
-						console_output += "\ngomail.SendMail() error: " + err.Error()
-
-						if (send_resp.ReplyCode == 550 || send_resp.ReplyCode == 551) {
-							// 550 is mailbox not found, no access or command rejected for policy reasons
-							// 551 is user not local; please try <forward-path>
-							// do not add to resend_queue
-						} else {
-
-							// add to resend_queue
-							om.FirstSendFailure = time.Now()
-							resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
-
-						}
-
+					if (send_resp.ReplyCode == 550 || send_resp.ReplyCode == 551) {
+						// 550 is mailbox not found, no access or command rejected for policy reasons
+						// 551 is user not local; please try <forward-path>
+						// do not add to resend_queue
 					} else {
 
-						console_output += "\nemail received by server\n"
-						//fmt.Println(email)
-						//fmt.Println(string(email))
+						// add to resend_queue
+						om.FirstSendFailure = time.Now()
+						resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
+
 					}
 
+				} else {
+
+					console_output += "\nemail received by server\n"
+					//fmt.Println(email)
+					//fmt.Println(string(email))
 				}
 
 			}
