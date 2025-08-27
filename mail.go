@@ -1397,6 +1397,19 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 				smtp_data = append(smtp_data, '\r')
 				smtp_data = append(smtp_data, '\n')
 
+				if (headers["message-id"] == "") {
+
+					// create a random Message-ID
+					var random_string = RandStringBytesMaskImprSrcUnsafe(32)
+					headers["message-id"] = "<" + random_string + "SMTPIN_ADDED_MISSING"
+
+					// add Fqdn
+					headers["message-id"] += "@" + config.Fqdn
+
+					headers["message-id"] += ">"
+
+				}
+
 				// full email received
 				// none of the data passed in the pointers should be accessed after this
 				// because it is sent in a pointer to a user level closure of a module
@@ -2937,7 +2950,22 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 	}
 
+	// add from header
 	headers["from"] = (*outbound_mail).From.String()
+
+	// add required sender header
+	headers["sender"] = (*outbound_mail).From.String()
+
+	// create a random Message-ID
+	var random_string = RandStringBytesMaskImprSrcUnsafe(32)
+	headers["message-id"] = "<" + random_string
+
+	if ((*outbound_mail).DkimDomain != "") {
+		// add DkimDomain if it exists
+		headers["message-id"] += "@" + (*outbound_mail).DkimDomain
+	}
+
+	headers["message-id"] += ">"
 
 	if (len((*outbound_mail).To) > 0) {
 		var th = ""
