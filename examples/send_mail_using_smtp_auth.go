@@ -12,12 +12,12 @@ func main() {
 	om.Username = "user"
 	om.Password = "pass"
 	om.Port = 25
-	om.From = mail.Address{"", "newuser@unknown.unknown_tld"}
+	om.From = &mail.Address{"", "newuser@unknown.unknown_tld"}
 	om.Subj = "New go-mail user"
 	om.Body = []byte("New go-mail user")
 
-	var to []mail.Address
-	to = append(to, mail.Address{"Andrew Hodel", "andrew@xyzbots.com"})
+	var to []*mail.Address
+	to = append(to, &mail.Address{"Andrew Hodel", "andrew@xyzbots.com"})
 	om.To = to
 
 	// returns gomail.SentMail
@@ -25,7 +25,9 @@ func main() {
 
 	if (sent_mail.Error != nil) {
 
-		fmt.Println("gomail.SendMail() error:", sent_mail.Error.Error())
+		// email did not even attempt to send to servers, invalid email
+
+		fmt.Println("gomail.SendMail error:", sent_mail.Error.Error())
 
 	} else {
 

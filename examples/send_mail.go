@@ -9,7 +9,7 @@ import (
 func main() {
 
 	var om gomail.OutboundMail
-	om.From = mail.Address{"", "newuser@unknown.unknown_tld"}
+	om.From = &mail.Address{"", "newuser@unknown.unknown_tld"}
 	om.Subj = "New go-mail user"
 	om.Body = []byte("New go-mail user")
 
@@ -18,8 +18,8 @@ func main() {
 	// this works insecurely without TLS
 	// unless om.RequireServerNameOfReceivingAddresses = true or the TLS certificate has a Subject Alternative Name (SAN) list with the IP address of om.ReceivingHost
 
-	var to []mail.Address
-	to = append(to, mail.Address{"Andrew Hodel", "andrew@xyzbots.com"})
+	var to []*mail.Address
+	to = append(to, &mail.Address{"Andrew Hodel", "andrew@xyzbots.com"})
 	om.To = to
 
 	// returns gomail.SentMail
@@ -27,7 +27,9 @@ func main() {
 
 	if (sent_mail.Error != nil) {
 
-		fmt.Println("gomail.SendMail() error:", sent_mail.Error.Error())
+		// email did not even attempt to send to servers, invalid email
+
+		fmt.Println("gomail.SendMail error:", sent_mail.Error.Error())
 
 	} else {
 

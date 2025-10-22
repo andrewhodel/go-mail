@@ -89,10 +89,10 @@ type OutboundMail struct {
 	ReceivingHostTlsConfig			*tls.Config
 	ReceivingHost				string
 	Port					int
-	From					mail.Address
-	To					[]mail.Address
-	Cc					[]mail.Address
-	Bcc					[]mail.Address
+	From					*mail.Address
+	To					[]*mail.Address
+	Cc					[]*mail.Address
+	Bcc					[]*mail.Address
 	Subj					string
 	Body					[]byte
 	DkimPrivateKey				[]byte
@@ -100,9 +100,13 @@ type OutboundMail struct {
 	DkimSigningAlgo				string
 	DkimExpireSeconds			int
 	Headers					map[string]string
-	FirstSendFailure			time.Time
 	RequireTLS				bool
 	RequireServerNameOfReceivingAddresses	bool
+	// the time of the first send failure, to be used to resend the same OutboundMail and set by the calling subroutine
+	FirstSendFailure			time.Time
+	// each server sent to is added to this
+	// modified during the send
+	ServersSentTo				*map[string] *bool
 }
 
 type Esmtp struct {
@@ -2956,16 +2960,20 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 	// add required sender header
 	headers["sender"] = (*outbound_mail).From.String()
 
-	// create a random Message-ID
-	var random_string = RandStringBytesMaskImprSrcUnsafe(32)
-	headers["message-id"] = "<" + random_string
+	if (headers["message-id"] == "") {
 
-	if ((*outbound_mail).DkimDomain != "") {
-		// add DkimDomain if it exists
-		headers["message-id"] += "@" + (*outbound_mail).DkimDomain
+		// create a random Message-ID
+		var random_string = RandStringBytesMaskImprSrcUnsafe(32)
+		headers["message-id"] = "<" + random_string
+
+		if ((*outbound_mail).DkimDomain != "") {
+			// add DkimDomain if it exists
+			headers["message-id"] += "@" + (*outbound_mail).DkimDomain
+		}
+
+		headers["message-id"] += ">"
+
 	}
-
-	headers["message-id"] += ">"
 
 	if (len((*outbound_mail).To) > 0) {
 		var th = ""
@@ -3007,7 +3015,7 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 	}
 
 	// add all to, cc and bcc addresses
-	var rcpt_to_addresses []mail.Address
+	var rcpt_to_addresses []*mail.Address
 
 	for i := range (*outbound_mail).To {
 		rcpt_to_addresses = append(rcpt_to_addresses, (*outbound_mail).To[i])
@@ -3021,12 +3029,12 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 		rcpt_to_addresses = append(rcpt_to_addresses, (*outbound_mail).Bcc[i])
 	}
 
-	// map[server_hostname] []mail.Address
+	// map[server_hostname] []*mail.Address
 	var servers_with_addresses = make(map[string] []mail.Address)
 
 	for l := range rcpt_to_addresses {
 
-		var a = rcpt_to_addresses[l]
+		var a = (*rcpt_to_addresses[l])
 
 		if ((*outbound_mail).ReceivingHost != "") {
 
@@ -3056,9 +3064,23 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 	}
 
+	if ((*outbound_mail).ServersSentTo == nil) {
+		var servers_sent_to = make(map[string] *bool)
+		(*outbound_mail).ServersSentTo = &servers_sent_to
+	}
+
 	for connect_host := range servers_with_addresses {
-		fmt.Println("connect_host", connect_host)
-		new_socket_SendMail(outbound_mail, connect_host, servers_with_addresses[connect_host], &sent_mail, headers)
+
+		if ((*(*outbound_mail).ServersSentTo)[connect_host] == nil) {
+
+			// supporting resends with the same OutboundMail
+			// this server has not already been sent to
+
+			fmt.Println("connect_host", connect_host)
+			new_socket_SendMail(outbound_mail, connect_host, servers_with_addresses[connect_host], &sent_mail, headers)
+
+		}
+
 	}
 
 	return sent_mail
@@ -3723,6 +3745,10 @@ func new_socket_SendMail(outbound_mail *OutboundMail, connect_host string, to_ad
 			(*sent_mail).AddressesThatReceivedEmail = append((*sent_mail).AddressesThatReceivedEmail, to_addresses[i].Address)
 
 		}
+
+		// add to OutboundMail.ServersSentTo
+		var sent_to = true
+		(*(*outbound_mail).ServersSentTo)[connect_host] = &sent_to
 
 		return
 

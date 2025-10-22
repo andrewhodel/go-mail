@@ -223,7 +223,7 @@ func main() {
 		// ip			ip address of the sending client
 		// esmtp_authed		ESTMP authed status
 		// mail_from		email address sent in MAIL FROM SMTP command
-		// rcpt_to_addresses	email addresses sent in RCPT TO SMTP commands (sometimes used instead of BCC headers)
+		// rcpt_to_addresses	email addresses receiving this email at this server only, sent in RCPT TO SMTP commands
 
 		//fmt.Println(string((*email_data)))
 		var dkim_string = "false"
@@ -292,33 +292,31 @@ func main() {
 				om.DkimPrivateKey = pk
 				om.DkimDomain = "aaaaaaaaaaaaaaaaaa._domainkey.domain.tld"
 				from_address, _ := mail.ParseAddress((*mail_from))
-				om.From = (*from_address)
+				om.From = from_address
 				om.Subj = (*headers)["subject"]
 				om.Body = (*email_data)[h_split_pos:end_split_pos]
-				// email will not send unless the server provides TLS or STARTTLS
-				om.RequireTLS = true
 
-				// add headers
+				// add headers from received email
 				om.Headers = (*headers)
 
 				// add to address
-				om.To = []mail.Address{send_addresses[a]}
+				om.To = []*mail.Address{&send_addresses[a]}
 
 				var sent_mail = gomail.SendMail(&om)
 
 				fmt.Println("sent email\n" + "to: " + om.To[0].Address + "\nfrom: " + om.From.Address + "\nsubject: " + om.Subj)
 
-				var sent = true
-
 				if (sent_mail.Error != nil) {
 
-					fmt.Println("gomail.SendMail() error:", sent_mail.Error.Error())
+					// email did not even attempt to send to servers, invalid email
 
-					sent = false
+					fmt.Println("gomail.SendMail error:", sent_mail.Error.Error())
 
 				} else {
 
 					// the email may be sent to multiple servers
+
+					var send_error = false
 
 					for hostname := range sent_mail.ReceivingServers {
 
@@ -328,25 +326,21 @@ func main() {
 
 							fmt.Println("email not received by server", hostname, (*rs).Error.Error())
 
-							sent = false
+							send_error = true
 
 						} else {
 							fmt.Println("email received by server", hostname, (*rs).ReplyCode, (*rs).TLSInfo)
-
-							// FIX remove addresses that received the mail, specified in sent_mail.AddressesThatReceivedEmail
-							// to resend without duplicates
-
 						}
 
 					}
 
-				}
+					if (send_error == true && om.FirstSendFailure.IsZero() == true) {
 
-				if (sent == false) {
+						// add to resend_queue
+						om.FirstSendFailure = time.Now()
+						resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
 
-					// add to resend_queue
-					om.FirstSendFailure = time.Now()
-					resend_queue[gomail.RandStringBytesMaskImprSrcUnsafe(107)] = om
+					}
 
 				}
 
@@ -834,13 +828,13 @@ func resend_loop() {
 
 		var sent_mail = gomail.SendMail(&om)
 
-		var sent = true
+		var finished = true
 
 		if (sent_mail.Error != nil) {
 
-			fmt.Println("gomail.SendMail() error:", sent_mail.Error.Error())
+			// email did not even attempt to send to servers, invalid email
 
-			sent = false
+			fmt.Println("gomail.SendMail error:", sent_mail.Error.Error())
 
 		} else {
 
@@ -854,14 +848,11 @@ func resend_loop() {
 
 					fmt.Println("email not received by server", hostname, (*rs).Error.Error())
 
-					sent = false
+					finished = false
 
 				} else {
 
 					fmt.Println("email received by server", hostname, (*rs).ReplyCode, (*rs).TLSInfo)
-
-					// FIX remove addresses that received the mail, specified in sent_mail.AddressesThatReceivedEmail
-					// to resend without duplicates
 
 				}
 
@@ -869,7 +860,7 @@ func resend_loop() {
 
 		}
 
-		if (sent == true) {
+		if (finished == true) {
 
 			// delete from resend_queue
 			delete(resend_queue, m)

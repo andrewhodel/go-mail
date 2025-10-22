@@ -19,12 +19,12 @@ func main() {
 	var om gomail.OutboundMail
 	om.DkimPrivateKey = pk
 	om.DkimDomain = "fgkhdgsfgdds._domainkey.xyzbots.com"
-	om.From = mail.Address{"", "andrew@xyzbots.com"}
+	om.From = &mail.Address{"", "andrew@xyzbots.com"}
 	om.Subj = "New go-mail user"
 	om.Body = []byte("New go-mail user")
 
-	var to []mail.Address
-	to = append(to, mail.Address{"Andrew Hodel", "andrewhodel@gmail.com"})
+	var to []*mail.Address
+	to = append(to, &mail.Address{"Andrew Hodel", "andrewhodel@gmail.com"})
 	om.To = to
 
 	// returns gomail.SentMail
@@ -32,7 +32,9 @@ func main() {
 
 	if (sent_mail.Error != nil) {
 
-		fmt.Println("gomail.SendMail() error:", sent_mail.Error.Error())
+		// email did not even attempt to send to servers, invalid email
+
+		fmt.Println("gomail.SendMail error:", sent_mail.Error.Error())
 
 	} else {
 
