@@ -2811,6 +2811,57 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 		headers[strings.ToLower(k)] = v
 	}
 
+	// https://datatracker.ietf.org/doc/html/rfc2822#section-2.3
+	// CR and LF must not appear independently in the body
+	// lines must be shorter than 999 characters but can use
+	// Content-Type: text/plain; charset="UTF-8"
+	// Content-Transfer-Encoding: quoted-printable
+	// to show readable text with longer lines as content-transfer-encoding: 7bit (default) does not support longer lines
+	var pos = 0
+	var body_len = len((*outbound_mail).Body)
+	var line_len = 0
+	for {
+
+		if (pos == body_len) {
+			break
+		}
+
+		line_len += 1
+
+		if ((*outbound_mail).Body[pos] == '\n') {
+			// not possible, \n cannot be before a \r
+			sent_mail.Error = errors.New("Body must only contain CRLF pairs.")
+			return sent_mail
+		} else if ((*outbound_mail).Body[pos] == '\r') {
+			if (pos + 1 == body_len) {
+				// not \r\n because \r is the last character
+				sent_mail.Error = errors.New("Body must only contain CRLF pairs.")
+				return sent_mail
+			} else if ((*outbound_mail).Body[pos + 1] == '\n') {
+
+				// valid CRLF
+				pos += 1
+
+				if (line_len - 1 > 998) {
+					// line is too long
+					sent_mail.Error = errors.New("All Body lines must be shorter than 999 characters.")
+					return sent_mail
+				}
+
+				line_len = 0
+
+			} else {
+				// not \r\n, \r is followed by some other character
+				sent_mail.Error = errors.New("Body must only contain CRLF pairs.")
+				return sent_mail
+			}
+
+		}
+
+		pos += 1
+
+	}
+
 	if (len((*outbound_mail).DkimPrivateKey) > 0 && (*outbound_mail).DkimDomain != "") {
 
 		var dkim_header = bytes.Buffer{}
@@ -2884,12 +2935,28 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 			remove all \r\n at the end then add \r\n (\r\n is CRLF)
 		*/
 
-		canonicalized_body = bytes.TrimRight((*outbound_mail).Body, "\r\n")
+		for b := range (*outbound_mail).Body {
+			canonicalized_body = append(canonicalized_body, (*outbound_mail).Body[b])
+		}
+
+		for {
+
+			var start_len = len(canonicalized_body)
+
+			canonicalized_body = bytes.TrimSuffix((*outbound_mail).Body, []byte("\r\n"))
+
+			var end_len = len(canonicalized_body)
+
+			if (start_len == end_len) {
+				break
+			}
+
+		}
 
 		canonicalized_body = append(canonicalized_body, '\r')
 		canonicalized_body = append(canonicalized_body, '\n')
 
-		//fmt.Println("canonicalized_body", string(canonicalized_body))
+		//fmt.Println("canonicalized_body", canonicalized_body)
 
 		// get the checksum from the canonicalized body
 		var canonicalized_body_sha256_sum = sha256.Sum256(canonicalized_body)
