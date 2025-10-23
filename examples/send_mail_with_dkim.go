@@ -21,7 +21,22 @@ func main() {
 	om.DkimDomain = "fgkhdgsfgdds._domainkey.xyzbots.com"
 	om.From = &mail.Address{"", "andrew@xyzbots.com"}
 	om.Subj = "New go-mail user"
-	om.Body = []byte("New go-mail user")
+
+	var body = []byte("there is a new go-mail user.")
+	var html_body = []byte("<div>there is a new go-mail user.</div>")
+
+	var multipart_alternative = gomail.MakeMultipartAlternative(&body, &html_body)
+
+	var attachment = []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	var attachment_part = gomail.MakeAttachmentPart("test.txt", &attachment, "text/plain")
+
+	var parts = make([]*[]byte, 0)
+	parts = append(parts, multipart_alternative)
+	parts = append(parts, attachment_part)
+
+	var multipart_mixed = gomail.MakeMultipartMixed(&parts)
+
+	om.Body = multipart_mixed
 
 	var to []*mail.Address
 	to = append(to, &mail.Address{"Andrew Hodel", "andrewhodel@gmail.com"})

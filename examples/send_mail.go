@@ -11,7 +11,22 @@ func main() {
 	var om gomail.OutboundMail
 	om.From = &mail.Address{"", "newuser@unknown.unknown_tld"}
 	om.Subj = "New go-mail user"
-	om.Body = []byte("New go-mail user")
+
+	var body = []byte("there is a new go-mail user.")
+	var html_body = []byte("<div>there is a new go-mail user.</div>")
+
+	var multipart_alternative = gomail.MakeMultipartAlternative(&body, &html_body)
+
+	var attachment = []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	var attachment_part = gomail.MakeAttachmentPart("test.txt", &attachment, "text/plain")
+
+	var parts = make([]*[]byte, 0)
+	parts = append(parts, multipart_alternative)
+	parts = append(parts, attachment_part)
+
+	var multipart_mixed = gomail.MakeMultipartMixed(&parts)
+
+	om.Body = multipart_mixed
 
 	// if you have not setup a server yet, you can send an email directly to an IP address
 	om.ReceivingHost = "172.16.10.24"
