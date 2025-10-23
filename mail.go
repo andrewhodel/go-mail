@@ -1003,7 +1003,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 													}
 												}
 
-												//fmt.Println("\n\ncanonicalized_header_string", canonicalized_header_string)
+												//fmt.Println("canonicalized_header_string", canonicalized_header_string)
 
 												// add the DKIM header that was used
 												// with no newlines, an empty b= tag and a space for each wsp sequence
@@ -1079,7 +1079,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 										// reset v
 										v = make([]byte, 0)
-										continue
+										break
 
 									}
 
@@ -1194,9 +1194,6 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								}
 
-								//fmt.Printf("part_headers: %+v\n", part_headers)
-								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
-
 								if (last_header_end_pos > len(part)) {
 
 									// the multipart data was sent in an invalid format
@@ -1208,6 +1205,11 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								// remove the headers from part
 								part = part[last_header_end_pos:len(part)]
+
+								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
+
+								//fmt.Printf("part_headers: %+v\n", part_headers)
+								//fmt.Println(string(part))
 
 							} else {
 
@@ -1421,16 +1423,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 						var boundary = get_boundary_from_content_type_header([]byte(parts_headers[l]["content-type"]))
 
-						fmt.Println("\n\nparsing multipart_alternative part into parts with boundary", boundary)
-
-						var part = make([]byte, 0)
-						part_headers := make(map[string]string)
-
-						// add a special is_alternative header to each part
-						// allowing selection of multipart/alternative parts from inbound_parts easily
-						// as email expects only 1 multipart/alternative that represents the body text as text/plain or text/html
-						// regardless of there being an enclosing multipart/mixed that can include attachments
-						part_headers[string("is_alternative")] = "true"
+						//fmt.Println("parsing multipart_alternative part into parts with boundary", boundary)
 
 						var boundary_len = len("--" + boundary)
 
@@ -1444,7 +1437,30 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 							if (string(parts[l][i:i + boundary_len]) == "--" + boundary) {
 
+								var part = make([]byte, 0)
+								part_headers := make(map[string]string)
+
+								// add a special is_alternative header to each part
+								// allowing selection of multipart/alternative parts from inbound_parts easily
+								// as email expects only 1 multipart/alternative that represents the body text as text/plain or text/html
+								// regardless of there being an enclosing multipart/mixed that can include attachments
+								part_headers[string("is_alternative")] = "true"
+
 								// there is a boundary
+
+								if (len(parts[l]) >= i + boundary_len + 2) {
+
+									if (string(parts[l][i:i + boundary_len + 2]) == "--" + boundary + "--") {
+
+										// this is the final boundary of this part
+										i += 2 + boundary_len + 2
+
+										//fmt.Println("final boundary", boundary)
+										break
+
+									}
+
+								}
 
 								//fmt.Println("boundary start", boundary, "found in multipart/alternative part, parsing new part")
 
@@ -1552,13 +1568,13 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								}
 
 								// remove the headers from part
-								part = part[last_header_end_pos:len(part)]
+								part = part[last_header_end_pos:len(part) - 2]
 
 								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
 
-								fmt.Printf("part_headers: %+v\n", part_headers)
-								fmt.Println("new part from multipart/alternative inside multipart/mixed")
-								fmt.Println(string(part))
+								//fmt.Println("new part from multipart/alternative inside multipart/mixed")
+								//fmt.Printf("part_headers: %+v\n", part_headers)
+								//fmt.Println(string(part))
 
 							} else {
 
