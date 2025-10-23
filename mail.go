@@ -2853,16 +2853,68 @@ func MakeAttachmentPart(filename string, filedata *[]byte, content_type string) 
 
 	var r = make([]byte, 0)
 
+	// handle filename with "
+	filename = strings.ReplaceAll(filename, "\"", "\\\"")
+
+	// add content-type
+	r = append(r, []byte("content-type: " + content_type + "; name=\"" + filename + "\"\r\n")...)
+
+	// add content-disposition
+	r = append(r, []byte("content-disposition: attachment; filename=\"" + filename + "\"\r\n")...)
+
+	// add content-transfer-encoding
+	r = append(r, []byte("content-transfer-encoding: base64\r\n")...)
+
+	var attachment_id = RandStringBytesMaskImprSrcUnsafe(13)
+
+	// add x-attachment-id
+	r = append(r, []byte("x-attachment-id: " + attachment_id + "\r\n")...)
+
+	// add content-id
+	r = append(r, []byte("content-id: " + attachment_id + "\r\n\r\n")...)
+
+	// add base64 data of filedata
+	var base64_data = make([]byte, base64.StdEncoding.EncodedLen(len((*filedata))))
+	base64.StdEncoding.Encode(base64_data, (*filedata))
+	r = append(r, base64_data...)
+
 	return &r
 
 }
 
-func MakeMultipartMixed(parts *[][]byte) (*[]byte) {
+func MakeMultipartMixed(parts *[]*[]byte) (*[]byte) {
 
 	// return a []byte that can be used as OutboundMail.Body
 	// with all of the parts as content-type: multipart/mixed
 
+	// each part must have it's own headers
+
+	var boundary = RandStringBytesMaskImprSrcUnsafe(28)
+
 	var r = make([]byte, 0)
+
+	// add content-type: multipart/mixed with boundary
+	r = append(r, []byte("content-type: multipart/mixed; boundary=\"" + boundary + "\"\r\n\r\n")...)
+
+	for l := range (*parts) {
+
+		var part = (*(*parts)[l])
+
+		// add boundary start
+		r = append(r, []byte("--" + boundary + "\r\n")...)
+
+		// add part
+		r = append(r, part...)
+
+		// add CRLF pair
+		r = append(r, []byte("\r\n")...)
+
+	}
+
+	// add final boundary
+	r = append(r, []byte("--")...)
+	r = append(r, boundary...)
+	r = append(r, []byte("--")...)
 
 	return &r
 
