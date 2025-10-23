@@ -94,7 +94,7 @@ type OutboundMail struct {
 	Cc					[]*mail.Address
 	Bcc					[]*mail.Address
 	Subj					string
-	Body					[]byte
+	Body					*[]byte
 	DkimPrivateKey				[]byte
 	DkimDomain				string
 	DkimSigningAlgo				string
@@ -1070,7 +1070,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 							if (string(smtp_data[i:i + boundary_len]) == "--" + boundary) {
 
 								// there is a boundary, parse the new block headers
-								//fmt.Println("boundary found in email body, parsing new block")
+								fmt.Println("boundary found in email body, parsing new block")
 
 								// parse until next boundary
 								var nb_size = 0
@@ -1169,7 +1169,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								}
 
-								//fmt.Printf("nb_headers: %+v\n", nb_headers)
+								fmt.Printf("nb_headers: %+v\n", nb_headers)
 								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
 
 								// remove the headers from nb
@@ -1210,8 +1210,9 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 							// add each part and the nb_headers for each part
 							parts_headers = append(parts_headers, nb_headers)
 
-							if (decode_qp == true) {
-								// decode quoted-printable data
+							if (decode_qp == true || nb_headers["content-transfer-encoding"] == "quoted-printable") {
+								// decode quoted-printable data from all of body is decode_qp is true because there was an email header
+								// or decode quoted-printable data of multipart part
 								qp, qp_err := io.ReadAll(quotedprintable.NewReader(bytes.NewReader(nb)))
 								if (qp_err == nil) {
 									nb = qp
@@ -1236,7 +1237,6 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 							// that means the protocol is invalid, you can include every possible boundary of 68 characters in an email
 
 							// RFC 5321 should require a content length header that is a utf8 string
-							// lines in the data of an email are not required to be less than 512 bytes, only the commands are
 
 							// final boundary reached
 							// who names this an epilogue
@@ -2793,6 +2793,95 @@ type SentMail struct {
 	AddressesThatReceivedEmail	[]string
 }
 
+func MakeMultipartAlternative(body *[]byte, html_body *[]byte) (*[]byte) {
+
+	// make body and html_body a []byte to return that is content-type: multipart/alternative
+	// as quoted-printable from body and html_body
+	// that can be used as OutboundMail.Body or as a part to MakeMultipartMixed
+
+	var boundary = RandStringBytesMaskImprSrcUnsafe(28)
+
+	var r = make([]byte, 0)
+
+	// add content-type: multipart/alternative with boundary
+	r = append(r, []byte("content-type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n")...)
+
+	if (body != nil) {
+
+		// add boundary start
+		r = append(r, []byte("--" + boundary + "\r\n")...)
+
+		// add content-type
+		r = append(r, []byte("content-type: text/plain; charset=\"UTF-8\"\r\n")...)
+
+		// add content-transfer-encoding
+		r = append(r, []byte("content-transfer-encoding: quoted-printable\r\n\r\n")...)
+
+		// add body as quoted-printable
+		var b bytes.Buffer
+		writer := quotedprintable.NewWriter(&b)
+		writer.Write((*body))
+		writer.Close()
+		r = append(r, b.Bytes()...)
+
+		// add 2 CRLF pairs
+		r = append(r, []byte("\r\n\r\n")...)
+
+	}
+
+	if (html_body != nil) {
+
+		// add boundary start
+		r = append(r, []byte("--" + boundary + "\r\n")...)
+
+		// add content-type
+		r = append(r, []byte("content-type: text/html; charset=\"UTF-8\"\r\n")...)
+
+		// add content-transfer-encoding
+		r = append(r, []byte("content-transfer-encoding: quoted-printable\r\n\r\n")...)
+
+		// add html_body as quoted-printable
+		var b bytes.Buffer
+		writer := quotedprintable.NewWriter(&b)
+		writer.Write((*html_body))
+		writer.Close()
+		r = append(r, b.Bytes()...)
+
+		// add 2 CRLF pairs
+		r = append(r, []byte("\r\n\r\n")...)
+
+	}
+
+	// add final boundary
+	r = append(r, []byte("--")...)
+	r = append(r, boundary...)
+	r = append(r, []byte("--")...)
+
+	return &r
+
+}
+
+func MakeAttachmentPart(filename string, filedata *[]byte, content_type string) (*[]byte) {
+
+	// return a []byte that can be used as a part to MakeMultipartMixed that is an attachment
+
+	var r = make([]byte, 0)
+
+	return &r
+
+}
+
+func MakeMultipartMixed(parts *[][]byte) (*[]byte) {
+
+	// return a []byte that can be used as OutboundMail.Body
+	// with all of the parts as content-type: multipart/mixed
+
+	var r = make([]byte, 0)
+
+	return &r
+
+}
+
 func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 	var sent_mail SentMail
@@ -2816,9 +2905,9 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 	// lines must be shorter than 999 characters but can use
 	// Content-Type: text/plain; charset="UTF-8"
 	// Content-Transfer-Encoding: quoted-printable
-	// to show readable text with longer lines as content-transfer-encoding: 7bit (default) does not support longer lines
+	// to show readable text with longer lines
 	var pos = 0
-	var body_len = len((*outbound_mail).Body)
+	var body_len = len((*(*outbound_mail).Body))
 	var line_len = 0
 	for {
 
@@ -2828,16 +2917,16 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 		line_len += 1
 
-		if ((*outbound_mail).Body[pos] == '\n') {
+		if ((*(*outbound_mail).Body)[pos] == '\n') {
 			// not possible, \n cannot be before a \r
 			sent_mail.Error = errors.New("Body must only contain CRLF pairs.")
 			return sent_mail
-		} else if ((*outbound_mail).Body[pos] == '\r') {
+		} else if ((*(*outbound_mail).Body)[pos] == '\r') {
 			if (pos + 1 == body_len) {
 				// not \r\n because \r is the last character
 				sent_mail.Error = errors.New("Body must only contain CRLF pairs.")
 				return sent_mail
-			} else if ((*outbound_mail).Body[pos + 1] == '\n') {
+			} else if ((*(*outbound_mail).Body)[pos + 1] == '\n') {
 
 				// valid CRLF
 				pos += 1
@@ -2935,15 +3024,13 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 			remove all \r\n at the end then add \r\n (\r\n is CRLF)
 		*/
 
-		for b := range (*outbound_mail).Body {
-			canonicalized_body = append(canonicalized_body, (*outbound_mail).Body[b])
-		}
+		canonicalized_body = append(canonicalized_body, (*(*outbound_mail).Body)...)
 
 		for {
 
 			var start_len = len(canonicalized_body)
 
-			canonicalized_body = bytes.TrimSuffix((*outbound_mail).Body, []byte("\r\n"))
+			canonicalized_body = bytes.TrimSuffix((*(*outbound_mail).Body), []byte("\r\n"))
 
 			var end_len = len(canonicalized_body)
 
@@ -3762,9 +3849,33 @@ func new_socket_SendMail(outbound_mail *OutboundMail, connect_host string, to_ad
 		conn.Write([]byte(k + ": " + v + "\r\n"))
 	}
 
+	var first_characters_length = len((*(*outbound_mail).Body))
+
+	if (first_characters_length > 700) {
+		// use the first 700 characters to determine if the body already has the Content-Type header due to a multipart/mixed or multipart/alternative type
+		first_characters_length = 700
+	}
+
+	var first_characters = make([]byte, 0)
+
+	for b := range (*(*outbound_mail).Body) {
+		if (b == first_characters_length) {
+			break
+		}
+		first_characters = append(first_characters, (*(*outbound_mail).Body)[b])
+	}
+
+	// make first_characters lowercase
+	first_characters = bytes.ToLower(first_characters)
+
+	if (bytes.Index(first_characters, []byte("content-type")) != 0) {
+		// the body does not include a content-type header
+		// write another CRLF pair
+		conn.Write([]byte("\r\n"))
+	}
+
 	// send the email body
-	conn.Write([]byte("\r\n"))
-	conn.Write((*outbound_mail).Body)
+	conn.Write((*(*outbound_mail).Body))
 	conn.Write([]byte("\r\n.\r\n"))
 
 	// read the response
