@@ -1121,6 +1121,12 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								vv := make([]byte, 0)
 								last_header_end_pos := 0
 								for l := range part {
+
+									// skip past --boundary\r\n
+									if (l < boundary_len + 2) {
+										continue
+									}
+
 									vv = append(vv, part[l])
 
 									//fmt.Printf("l: %d c: %c\n", l, part[l])
@@ -1154,7 +1160,18 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 													ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
 
 													// add header
-													part_headers[string(bytes.ToLower(ss[0]))] = string(bytes.ToLower(ss[1]))
+													part_headers[string(bytes.ToLower(ss[0]))] = string(ss[1])
+
+													if (strings.Index(headers["content-type"], "multipart/alternative") == 0) {
+
+														// the entire body is a multipart/alternative, multipart/mixed that can include attachments with multipart/alternative inside of it
+														// add a special is_alternative header to each part
+														// allowing selection of multipart/alternative parts from inbound_parts easily
+														// as email expects only 1 multipart/alternative that represents the body text as text/plain or text/html
+														// regardless of there being an enclosing multipart/mixed that can include attachments
+														part_headers[string("is_alternative")] = "true"
+
+													}
 
 													last_header_end_pos = l + 3
 
@@ -1221,8 +1238,6 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								}
 
 							}
-
-							//fmt.Printf("##NB##%s##ENDNB##\n", part)
 
 							// add each part and the part_headers for each part
 							parts_headers = append(parts_headers, part_headers)
@@ -1293,19 +1308,8 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								if (string(header_name) == "content-type") {
 
-									// add boundary from content-type
-
-									// find the string boundary in lower case, because it may be spelled bOUndary or any other way
-									bb := bytes.Index(bytes.ToLower(header_value), []byte("boundary=\""))
-
-									//fmt.Printf("boundary=\" found at: %d in: %s\n", bb, header_value)
-
-									if (bb > -1) {
-										// set boundary to the original header value because that's what is in the email body
-										bbb := header_value[bb + len("boundary=\""):len(header_value)]
-										boundary = string(bytes.Trim(bbb, "\""))
-										//fmt.Printf("\n\n\nnew boundary: %s\n", boundary)
-									}
+									// add boundary from content-type to support multipart
+									boundary = get_boundary_from_content_type_header(header_value)
 
 								} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3 && dkim_public_key == "") {
 
@@ -1409,6 +1413,169 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 				}
 
+				for l := range parts_headers {
+
+					if (strings.Index(parts_headers[l]["content-type"], "multipart/alternative") == 0) {
+
+						// parse multipart/alternative inside multipart/mixed into parts with special header indicating that
+
+						var boundary = get_boundary_from_content_type_header([]byte(parts_headers[l]["content-type"]))
+
+						fmt.Println("\n\nparsing multipart_alternative part into parts with boundary", boundary)
+
+						var part = make([]byte, 0)
+						part_headers := make(map[string]string)
+
+						// add a special is_alternative header to each part
+						// allowing selection of multipart/alternative parts from inbound_parts easily
+						// as email expects only 1 multipart/alternative that represents the body text as text/plain or text/html
+						// regardless of there being an enclosing multipart/mixed that can include attachments
+						part_headers[string("is_alternative")] = "true"
+
+						var boundary_len = len("--" + boundary)
+
+						var i = 0
+
+						for {
+
+							if (i >= len(parts[l])) {
+								break
+							}
+
+							if (string(parts[l][i:i + boundary_len]) == "--" + boundary) {
+
+								// there is a boundary
+
+								//fmt.Println("boundary start", boundary, "found in multipart/alternative part, parsing new part")
+
+								// parse until next boundary
+								var part_size = 0
+								for {
+
+									if (i >= len(parts[l])) {
+										break
+									}
+
+									part = append(part, parts[l][i])
+
+									// find next boundary
+									//if (bytes.Contains(part, []byte("--" + boundary))) {
+									// same thing but faster
+									if (len(part) >= 2+2+len(boundary)) {
+										if (bytes.Compare(part[len(part)-2-2-len(boundary):len(part)], []byte("\r\n--" + boundary)) == 0) {
+											// set where to start processing after this part
+											i = i - len(boundary) - 1
+											// remove the boundary string from part
+											part = part[0:len(part) - (2 + 2 + len(boundary))]
+											break
+										}
+									}
+
+									i = i + 1
+									part_size = part_size + 1
+
+								}
+
+								// get the headers from this part
+								vv := make([]byte, 0)
+								last_header_end_pos := 0
+								for l := range part {
+
+									// skip past --boundary\r\n
+									if (l < boundary_len + 2) {
+										continue
+									}
+
+									vv = append(vv, part[l])
+
+									//fmt.Printf("l: %d c: %c\n", l, part[l])
+
+									if (len(vv) > 3) {
+
+										if (part[l-1] == []byte("\r")[0] && part[l] == []byte("\n")[0]) {
+
+											ml := false
+											if (len(part) > l + 1) {
+												// check for multiline header
+												if (part[l+1] == []byte(" ")[0] || part[l+1] == []byte("\t")[0]) {
+													//fmt.Printf("multiline header found\n")
+													ml = true
+												}
+											}
+
+											if (!ml) {
+
+												//fmt.Printf("header found: %s\n", vv)
+												ss := bytes.Split(vv, []byte(":"))
+												for ssc := range ss {
+													// trim spaces
+													ss[ssc] = bytes.Trim(ss[ssc], " ")
+												}
+
+												if (len(ss) > 1) {
+
+													// remove any newlines from ss[1]
+													ss[1] = bytes.ReplaceAll(ss[1], []byte("\r"), []byte(""))
+													ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
+
+													// add header
+													part_headers[string(bytes.ToLower(ss[0]))] = string(ss[1])
+
+													last_header_end_pos = l + 3
+
+												}
+
+												// reset test string
+												vv = make([]byte, 0)
+											}
+
+											if (len(part) > l + 2) {
+												if (part[l-1] == []byte("\r")[0] && part[l] == []byte("\n")[0] && part[l+1] == []byte("\r")[0] && part[l+2] == []byte("\n")[0]) {
+													// last header found
+													break
+												}
+											}
+
+										}
+
+									}
+
+								}
+
+								if (last_header_end_pos > len(part)) {
+
+									// the multipart data was sent in an invalid format
+									conn.Write([]byte("501 Syntax error in parameters or arguments; a multipart header block did not have an extra CRLF\r\n"))
+									conn.Close()
+									return
+
+								}
+
+								// remove the headers from part
+								part = part[last_header_end_pos:len(part)]
+
+								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
+
+								fmt.Printf("part_headers: %+v\n", part_headers)
+								fmt.Println("new part from multipart/alternative inside multipart/mixed")
+								fmt.Println(string(part))
+
+							} else {
+
+
+								// the multipart data was sent in an invalid format
+								conn.Write([]byte("501 Syntax error in parameters or arguments; invalid multipart/alternative data inside a multipart/mixed part\r\n"))
+								conn.Close()
+								return
+
+							}
+
+						}
+
+					}
+
+				}
+
 				// full email received
 				// none of the data passed in the pointers should be accessed after this
 				// because it is sent in a pointer to a user level closure of a module
@@ -1425,6 +1592,27 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 	}
 
 	//fmt.Println("server: conn: closed\n")
+
+}
+
+func get_boundary_from_content_type_header(header_value []byte) (string) {
+
+	// return the boundary of the content-type header if boundary exists in it
+
+	// find the string boundary in lower case, because it may be spelled bOUndary or any other way
+	bb := bytes.Index(bytes.ToLower(header_value), []byte("boundary=\""))
+
+	//fmt.Printf("boundary=\" found at: %d in: %s\n", bb, header_value)
+
+	if (bb > -1) {
+
+		// set boundary to the original header value because that's what is in the email body
+		bbb := header_value[bb + len("boundary=\""):len(header_value)]
+		return string(bytes.Trim(bbb, "\""))
+
+	}
+
+	return ""
 
 }
 
