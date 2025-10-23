@@ -482,14 +482,14 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 			// should be authorized
 			conn.Write([]byte("221 unauthenticated send limit exceeded\r\n"))
 			conn.Close()
-			break
+			return
 		}
 
 		if (authed == false && sent_bytes > 400) {
 			// disconnect unauthed connections that have sent more than N bytes
 			conn.Write([]byte("221 unauthenticated send limit exceeded\r\n"))
 			conn.Close()
-			break
+			return
 		}
 
 		buf := make([]byte, 1400)
@@ -499,7 +499,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 			//fmt.Printf("server: conn: read: %s\n", err)
 			// close connection
 			conn.Close()
-			break
+			return
 		}
 
 		//fmt.Printf("smtp read length: %d\n", n)
@@ -517,7 +517,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 			//fmt.Println("smtp data too big from ", ip)
 			conn.Write([]byte("221 send limit exceeded\r\n"))
 			conn.Close()
-			break
+			return
 		}
 
 		if (parse_data == false) {
@@ -636,7 +636,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 						// remove the \r from v
 						v = v[:len(v)-1]
 
-						fmt.Println("LINE:", len(v), string(v))
+						//fmt.Println("LINE:", len(v), string(v))
 
 						if (len(v) == 0) {
 
@@ -1075,7 +1075,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 										// this is the final boundary of this part
 										i += 2 + boundary_len + 2
 
-										fmt.Println("final boundary", boundary)
+										//fmt.Println("final boundary", boundary)
 
 										// reset v
 										v = make([]byte, 0)
@@ -1085,7 +1085,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								}
 
-								fmt.Println("boundary start", boundary, "found in email body, parsing new part")
+								//fmt.Println("boundary start", boundary, "found in email body, parsing new part")
 
 								// parse until next boundary
 								var part_size = 0
@@ -1115,7 +1115,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								}
 
-								fmt.Println("part_size", part_size, "boundary_len", boundary_len)
+								//fmt.Println("part_size", part_size, "boundary_len", boundary_len)
 
 								// get the headers from this part
 								vv := make([]byte, 0)
@@ -1177,8 +1177,17 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								}
 
-								fmt.Printf("part_headers: %+v\n", part_headers)
+								//fmt.Printf("part_headers: %+v\n", part_headers)
 								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
+
+								if (last_header_end_pos > len(part)) {
+
+									// the multipart data was sent in an invalid format
+									conn.Write([]byte("501 Syntax error in parameters or arguments; a multipart header block did not have an extra CRLF\r\n"))
+									conn.Close()
+									return
+
+								}
 
 								// remove the headers from part
 								part = part[last_header_end_pos:len(part)]
@@ -1295,7 +1304,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 										// set boundary to the original header value because that's what is in the email body
 										bbb := header_value[bb + len("boundary=\""):len(header_value)]
 										boundary = string(bytes.Trim(bbb, "\""))
-										fmt.Printf("\n\n\nnew boundary: %s\n", boundary)
+										//fmt.Printf("\n\n\nnew boundary: %s\n", boundary)
 									}
 
 								} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3 && dkim_public_key == "") {
@@ -1375,7 +1384,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 				// write 250 OK
 				conn.Write([]byte("250 OK\r\n"))
-				fmt.Println("finished parsing DATA and wrote 250 OK to SMTP client")
+				//fmt.Println("finished parsing DATA and wrote 250 OK to SMTP client")
 
 				// now the client may send another email or disconnect
 
