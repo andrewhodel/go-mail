@@ -636,7 +636,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 						// remove the \r from v
 						v = v[:len(v)-1]
 
-						//fmt.Println("LINE:", len(v), string(v))
+						fmt.Println("LINE:", len(v), string(v))
 
 						if (len(v) == 0) {
 
@@ -1067,6 +1067,24 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 							if (string(smtp_data[i:i + boundary_len]) == "--" + boundary) {
 
 								// there is a boundary, parse the new part headers
+
+								if (len(smtp_data) >= i + boundary_len + 2) {
+
+									if (string(smtp_data[i:i + boundary_len + 2]) == "--" + boundary + "--") {
+
+										// this is the final boundary of this part
+										i += 2 + boundary_len + 2
+
+										fmt.Println("final boundary", boundary)
+
+										// reset v
+										v = make([]byte, 0)
+										continue
+
+									}
+
+								}
+
 								fmt.Println("boundary start", boundary, "found in email body, parsing new part")
 
 								// parse until next boundary
@@ -1097,14 +1115,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								}
 
-								//fmt.Println("part_size", part_size, "boundary_len", boundary_len)
-
-								if (part_size == boundary_len + 7) {
-									// part == --boundary--\r\n.\r\n
-									// and is empty
-									fmt.Println("empty part")
-									break
-								}
+								fmt.Println("part_size", part_size, "boundary_len", boundary_len)
 
 								// get the headers from this part
 								vv := make([]byte, 0)
@@ -1221,24 +1232,6 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 							// reset v
 							v = make([]byte, 0)
 							continue
-
-						} else if (string(v) == "--" + boundary + "--") {
-
-							// RFC 1341 (a multipart RFC, none are defined in RFC 5321)
-							// Because encapsulation boundaries must not appear in the body parts being encapsulated, a user agent must exercise care to choose a unique boundary.
-							// The simplest boundary possible is something like "---", with a closing boundary of "-----".
-
-							// also says:
-							// Encapsulation boundaries must not appear within the encapsulations, and must be no longer than 70 characters, not counting the two leading hyphens.
-
-							// that means the protocol is invalid, you can include every possible boundary of 68 characters in an email
-
-							// RFC 5321 should require a content length header that is a utf8 string
-
-							// final boundary reached
-							// who names this an epilogue
-							fmt.Printf("\n\n\n\nfinal boundary reached at %d\n", i)
-							break
 
 						}
 
