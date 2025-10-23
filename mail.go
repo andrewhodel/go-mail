@@ -39,6 +39,8 @@ import (
 	"mime/quotedprintable"
 	"os"
 	"go-ip-ac"
+	"sort"
+	"slices"
 )
 
 type mail_from_func func(string, string, string, string, *bool) (bool, string)
@@ -1415,9 +1417,13 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 				}
 
+				var parts_to_delete []int
+
 				for l := range parts_headers {
 
 					if (strings.Index(parts_headers[l]["content-type"], "multipart/alternative") == 0) {
+
+						parts_to_delete = append(parts_to_delete, l)
 
 						// parse multipart/alternative inside multipart/mixed into parts with special header indicating that
 
@@ -1576,6 +1582,10 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								//fmt.Printf("part_headers: %+v\n", part_headers)
 								//fmt.Println(string(part))
 
+								// iteration of parts_headers using range does not iterate items added during the iteration
+								parts_headers = append(parts_headers, part_headers)
+								parts = append(parts, part)
+
 							} else {
 
 
@@ -1589,6 +1599,19 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 						}
 
 					}
+
+				}
+
+				// sort parts_to_delete to have the highest indexes first
+				sort.Sort(sort.Reverse(sort.IntSlice(parts_to_delete)))
+
+				for l := range parts_to_delete {
+
+					// delete the multipart/alternative parts of the multipart/mixed body that was converted to parts
+					var index_to_delete = parts_to_delete[l]
+
+					parts = slices.Delete(parts, index_to_delete, index_to_delete + 1)
+					parts_headers = slices.Delete(parts_headers, index_to_delete, index_to_delete + 1)
 
 				}
 
