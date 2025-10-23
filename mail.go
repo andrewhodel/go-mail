@@ -608,9 +608,6 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 				real_headers := make([]string, 0)
 				var headers_sent = false
 
-				// decode quoted-printable body parts
-				var decode_qp = false
-
 				// limit the number of DKIM lookups
 				var dkim_lookups = 0
 				var validate_dkim = false
@@ -1062,69 +1059,69 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 							}
 
-							var nb = make([]byte, 0)
-							nb_headers := make(map[string]string)
+							var part = make([]byte, 0)
+							part_headers := make(map[string]string)
 
 							var boundary_len = len("--" + boundary)
 
 							if (string(smtp_data[i:i + boundary_len]) == "--" + boundary) {
 
-								// there is a boundary, parse the new block headers
-								fmt.Println("boundary found in email body, parsing new block")
+								// there is a boundary, parse the new part headers
+								fmt.Println("boundary start", boundary, "found in email body, parsing new part")
 
 								// parse until next boundary
-								var nb_size = 0
+								var part_size = 0
 								for {
 
 									if (i >= len(smtp_data)) {
 										break
 									}
 
-									nb = append(nb, smtp_data[i])
+									part = append(part, smtp_data[i])
 
 									// find next boundary
-									//if (bytes.Contains(nb, []byte("--" + boundary))) {
+									//if (bytes.Contains(part, []byte("--" + boundary))) {
 									// same thing but faster
-									if (len(nb) >= 2+2+len(boundary)) {
-										if (bytes.Compare(nb[len(nb)-2-2-len(boundary):len(nb)], []byte("\r\n--" + boundary)) == 0) {
-											// set where to start processing after this nb
+									if (len(part) >= 2+2+len(boundary)) {
+										if (bytes.Compare(part[len(part)-2-2-len(boundary):len(part)], []byte("\r\n--" + boundary)) == 0) {
+											// set where to start processing after this part
 											i = i - (2 + 2 + len(boundary))
-											// remove the boundary string from nb
-											nb = nb[0:len(nb) - (2 + 2 + len(boundary))]
+											// remove the boundary string from part
+											part = part[0:len(part) - (2 + 2 + len(boundary))]
 											break
 										}
 									}
 
 									i = i + 1
-									nb_size = nb_size + 1
+									part_size = part_size + 1
 
 								}
 
-								//fmt.Println("nb_size", nb_size, "boundary_len", boundary_len)
+								//fmt.Println("part_size", part_size, "boundary_len", boundary_len)
 
-								if (nb_size == boundary_len + 7) {
-									// nb == --boundary--\r\n.\r\n
+								if (part_size == boundary_len + 7) {
+									// part == --boundary--\r\n.\r\n
 									// and is empty
-									//fmt.Println("empty block")
+									fmt.Println("empty part")
 									break
 								}
 
-								// get the headers from this nb
+								// get the headers from this part
 								vv := make([]byte, 0)
 								last_header_end_pos := 0
-								for l := range nb {
-									vv = append(vv, nb[l])
+								for l := range part {
+									vv = append(vv, part[l])
 
-									//fmt.Printf("l: %d c: %c\n", l, nb[l])
+									//fmt.Printf("l: %d c: %c\n", l, part[l])
 
 									if (len(vv) > 3) {
 
-										if (nb[l-1] == []byte("\r")[0] && nb[l] == []byte("\n")[0]) {
+										if (part[l-1] == []byte("\r")[0] && part[l] == []byte("\n")[0]) {
 
 											ml := false
-											if (len(nb) > l + 1) {
+											if (len(part) > l + 1) {
 												// check for multiline header
-												if (nb[l+1] == []byte(" ")[0] || nb[l+1] == []byte("\t")[0]) {
+												if (part[l+1] == []byte(" ")[0] || part[l+1] == []byte("\t")[0]) {
 													//fmt.Printf("multiline header found\n")
 													ml = true
 												}
@@ -1146,7 +1143,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 													ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
 
 													// add header
-													nb_headers[string(bytes.ToLower(ss[0]))] = string(bytes.ToLower(ss[1]))
+													part_headers[string(bytes.ToLower(ss[0]))] = string(bytes.ToLower(ss[1]))
 
 													last_header_end_pos = l + 3
 
@@ -1156,8 +1153,8 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 												vv = make([]byte, 0)
 											}
 
-											if (len(nb) > l + 2) {
-												if (nb[l-1] == []byte("\r")[0] && nb[l] == []byte("\n")[0] && nb[l+1] == []byte("\r")[0] && nb[l+2] == []byte("\n")[0]) {
+											if (len(part) > l + 2) {
+												if (part[l-1] == []byte("\r")[0] && part[l] == []byte("\n")[0] && part[l+1] == []byte("\r")[0] && part[l+2] == []byte("\n")[0]) {
 													// last header found
 													break
 												}
@@ -1169,15 +1166,15 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								}
 
-								fmt.Printf("nb_headers: %+v\n", nb_headers)
+								fmt.Printf("part_headers: %+v\n", part_headers)
 								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
 
-								// remove the headers from nb
-								nb = nb[last_header_end_pos:len(nb)]
+								// remove the headers from part
+								part = part[last_header_end_pos:len(part)]
 
 							} else {
 
-								// there is only body content, add it to nb
+								// there is only body content, add it to part
 								//fmt.Println("email body does not have boundaries")
 								for {
 
@@ -1185,7 +1182,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 										break
 									}
 
-									nb = append(nb, smtp_data[i])
+									part = append(part, smtp_data[i])
 
 									i = i + 1
 
@@ -1193,33 +1190,33 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								// remove the end of body text
 								// if it was received
-								if (len(nb) >= 3) {
-									if (nb[len(nb)-3] == 46 && nb[len(nb)-2] == 13 && nb[len(nb)-1] == 10) {
+								if (len(part) >= 3) {
+									if (part[len(part)-3] == 46 && part[len(part)-2] == 13 && part[len(part)-1] == 10) {
 										// last 3 characters exist and are
 										// 46 13 10
 										// . \r \n
-										//fmt.Println(nb[len(nb)-3], nb[len(nb)-2], nb[len(nb)-1])
-										nb = nb[:len(nb)-3]
+										//fmt.Println(part[len(part)-3], part[len(part)-2], part[len(part)-1])
+										part = part[:len(part)-3]
 									}
 								}
 
 							}
 
-							//fmt.Printf("##NB##%s##ENDNB##\n", nb)
+							//fmt.Printf("##NB##%s##ENDNB##\n", part)
 
-							// add each part and the nb_headers for each part
-							parts_headers = append(parts_headers, nb_headers)
+							// add each part and the part_headers for each part
+							parts_headers = append(parts_headers, part_headers)
 
-							if (decode_qp == true || nb_headers["content-transfer-encoding"] == "quoted-printable") {
-								// decode quoted-printable data from all of body is decode_qp is true because there was an email header
+							if (headers["content-transfer-encoding"] == "quoted-printable" || part_headers["content-transfer-encoding"] == "quoted-printable") {
+								// decode quoted-printable data from all of body there was an email header
 								// or decode quoted-printable data of multipart part
-								qp, qp_err := io.ReadAll(quotedprintable.NewReader(bytes.NewReader(nb)))
+								qp, qp_err := io.ReadAll(quotedprintable.NewReader(bytes.NewReader(part)))
 								if (qp_err == nil) {
-									nb = qp
+									part = qp
 								}
 							}
 
-							parts = append(parts, nb)
+							parts = append(parts, part)
 
 							// reset v
 							v = make([]byte, 0)
@@ -1240,7 +1237,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 							// final boundary reached
 							// who names this an epilogue
-							//fmt.Printf("final boundary reached at %d\n", i)
+							fmt.Printf("\n\n\n\nfinal boundary reached at %d\n", i)
 							break
 
 						}
@@ -1293,6 +1290,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								}
 
 								if (string(header_name) == "content-type") {
+
 									// add boundary from content-type
 
 									// find the string boundary in lower case, because it may be spelled bOUndary or any other way
@@ -1304,14 +1302,9 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 										// set boundary to the original header value because that's what is in the email body
 										bbb := header_value[bb + len("boundary=\""):len(header_value)]
 										boundary = string(bytes.Trim(bbb, "\""))
-										//fmt.Printf("boundary: %s\n", boundary)
+										fmt.Printf("\n\n\nnew boundary: %s\n", boundary)
 									}
 
-								} else if (string(header_name) == "content-transfer-encoding" && string(bytes.ToLower(header_value)) == "quoted-printable") {
-									// if content-transfer-encoding is quoted-printable
-									// lines ending with =\r\n need to remove =\r\n
-									//fmt.Println("decoding content-transfer-encoding", string(header_value))
-									decode_qp = true
 								} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3 && dkim_public_key == "") {
 
 									// the dkim_public_key has not been found yet
