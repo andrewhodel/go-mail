@@ -84,6 +84,12 @@ type Email struct {
 	Mailbox				string
 }
 
+type Attachment struct {
+	File					*[]byte
+	Name					string
+	Type					string
+}
+
 type OutboundMail struct {
 	SendingHost				string
 	Username				string
@@ -96,7 +102,10 @@ type OutboundMail struct {
 	Cc					[]*mail.Address
 	Bcc					[]*mail.Address
 	Subj					string
+	Attachments				[]*Attachment
 	Body					*[]byte
+	HtmlBody				*[]byte
+	RawBody					*[]byte
 	DkimPrivateKey				[]byte
 	DkimDomain				string
 	DkimSigningAlgo				string
@@ -3015,18 +3024,15 @@ type SentMail struct {
 	AddressesThatReceivedEmail	[]string
 }
 
-func MakeMultipartAlternative(body *[]byte, html_body *[]byte) (*[]byte) {
+func makeMultipartAlternative(body *[]byte, html_body *[]byte) (string, *[]byte) {
 
 	// make body and html_body a []byte to return that is content-type: multipart/alternative
 	// as quoted-printable from body and html_body
-	// that can be used as OutboundMail.Body or as a part to MakeMultipartMixed
+	// that can be used as OutboundMail.Body or as a part to makeMultipartMixed
 
 	var boundary = RandStringBytesMaskImprSrcUnsafe(28)
 
 	var r = make([]byte, 0)
-
-	// add content-type: multipart/alternative with boundary
-	r = append(r, []byte("content-type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n")...)
 
 	if (body != nil) {
 
@@ -3079,21 +3085,21 @@ func MakeMultipartAlternative(body *[]byte, html_body *[]byte) (*[]byte) {
 	r = append(r, boundary...)
 	r = append(r, []byte("--")...)
 
-	return &r
+	return boundary, &r
 
 }
 
-func MakeAttachmentPart(filename string, filedata *[]byte, content_type string) (*[]byte) {
+func makeAttachmentPart(attachment *Attachment) (*[]byte) {
 
-	// return a []byte that can be used as a part to MakeMultipartMixed that is an attachment
+	// return a []byte that can be used as a part to makeMultipartMixed that is an attachment
 
 	var r = make([]byte, 0)
 
 	// handle filename with "
-	filename = strings.ReplaceAll(filename, "\"", "\\\"")
+	var filename = strings.ReplaceAll((*attachment).Name, "\"", "\\\"")
 
 	// add content-type
-	r = append(r, []byte("content-type: " + content_type + "; name=\"" + filename + "\"\r\n")...)
+	r = append(r, []byte("content-type: " + (*attachment).Type + "; name=\"" + filename + "\"\r\n")...)
 
 	// add content-disposition
 	r = append(r, []byte("content-disposition: attachment; filename=\"" + filename + "\"\r\n")...)
@@ -3110,15 +3116,15 @@ func MakeAttachmentPart(filename string, filedata *[]byte, content_type string) 
 	r = append(r, []byte("content-id: " + attachment_id + "\r\n\r\n")...)
 
 	// add base64 data of filedata
-	var base64_data = make([]byte, base64.StdEncoding.EncodedLen(len((*filedata))))
-	base64.StdEncoding.Encode(base64_data, (*filedata))
+	var base64_data = make([]byte, base64.StdEncoding.EncodedLen(len((*(*attachment).File))))
+	base64.StdEncoding.Encode(base64_data, (*(*attachment).File))
 	r = append(r, base64_data...)
 
 	return &r
 
 }
 
-func MakeMultipartMixed(parts *[]*[]byte) (*[]byte) {
+func makeMultipartMixed(parts *[]*[]byte) (string, *[]byte) {
 
 	// return a []byte that can be used as OutboundMail.Body
 	// with all of the parts as content-type: multipart/mixed
@@ -3128,9 +3134,6 @@ func MakeMultipartMixed(parts *[]*[]byte) (*[]byte) {
 	var boundary = RandStringBytesMaskImprSrcUnsafe(28)
 
 	var r = make([]byte, 0)
-
-	// add content-type: multipart/mixed with boundary
-	r = append(r, []byte("content-type: multipart/mixed; boundary=\"" + boundary + "\"\r\n\r\n")...)
 
 	for l := range (*parts) {
 
@@ -3152,7 +3155,7 @@ func MakeMultipartMixed(parts *[]*[]byte) (*[]byte) {
 	r = append(r, boundary...)
 	r = append(r, []byte("--")...)
 
-	return &r
+	return boundary, &r
 
 }
 
@@ -3166,12 +3169,55 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 		return sent_mail
 	}
 
+	var raw_body = make([]byte, 0)
+	(*outbound_mail).RawBody = &raw_body
+
 	// Setup headers
 	headers := make(map[string] string)
 
 	// copy defined headers to headers that are sent
 	for k,v := range (*outbound_mail).Headers {
 		headers[strings.ToLower(k)] = v
+	}
+
+	if (len((*outbound_mail).Attachments) > 0) {
+
+		// this is a multipart/mixed body
+
+		// make multipart/alternative of Body and HtmlBody
+		var alt_boundary = ""
+		var alt_body *[]byte
+		alt_boundary, alt_body = makeMultipartAlternative((*outbound_mail).Body, (*outbound_mail).HtmlBody)
+
+		// add header content-type: multipart/alternative with boundary to alt_body
+		var h = []byte("content-type: multipart/alternative; boundary=\"" + alt_boundary + "\"\r\n\r\n")
+
+		(*alt_body) = append(h, (*alt_body)...)
+
+		// make multipart/mixed of alt_body and attachments
+		var parts []*[]byte
+
+		parts = append(parts, alt_body)
+
+		for l := range (*outbound_mail).Attachments {
+			parts = append(parts, makeAttachmentPart((*outbound_mail).Attachments[l]))
+		}
+
+		var boundary = ""
+		boundary, (*outbound_mail).RawBody = makeMultipartMixed(&parts)
+
+		// add header content-type: multipart/mixed with boundary
+		headers["content-type"] = "multipart/mixed; boundary=\"" + boundary + "\""
+
+	} else {
+
+		// this is a multipart/alternative body
+		var boundary = ""
+		boundary, (*outbound_mail).RawBody = makeMultipartAlternative((*outbound_mail).Body, (*outbound_mail).HtmlBody)
+
+		// add header content-type: multipart/alternative with boundary
+		headers["content-type"] = "multipart/alternative; boundary=\"" + boundary + "\""
+
 	}
 
 	// https://datatracker.ietf.org/doc/html/rfc2822#section-2.3
@@ -3181,7 +3227,7 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 	// Content-Transfer-Encoding: quoted-printable
 	// to show readable text with longer lines
 	var pos = 0
-	var body_len = len((*(*outbound_mail).Body))
+	var body_len = len((*(*outbound_mail).RawBody))
 	var line_len = 0
 	for {
 
@@ -3191,23 +3237,23 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 		line_len += 1
 
-		if ((*(*outbound_mail).Body)[pos] == '\n') {
+		if ((*(*outbound_mail).RawBody)[pos] == '\n') {
 			// not possible, \n cannot be before a \r
-			sent_mail.Error = errors.New("Body must only contain CRLF pairs.")
+			sent_mail.Error = errors.New("RawBody must only contain CRLF pairs.")
 			return sent_mail
-		} else if ((*(*outbound_mail).Body)[pos] == '\r') {
+		} else if ((*(*outbound_mail).RawBody)[pos] == '\r') {
 			if (pos + 1 == body_len) {
 				// not \r\n because \r is the last character
-				sent_mail.Error = errors.New("Body must only contain CRLF pairs.")
+				sent_mail.Error = errors.New("RawBody must only contain CRLF pairs.")
 				return sent_mail
-			} else if ((*(*outbound_mail).Body)[pos + 1] == '\n') {
+			} else if ((*(*outbound_mail).RawBody)[pos + 1] == '\n') {
 
 				// valid CRLF
 				pos += 1
 
 				if (line_len - 1 > 998) {
 					// line is too long
-					sent_mail.Error = errors.New("All Body lines must be shorter than 999 characters.")
+					sent_mail.Error = errors.New("All RawBody lines must be shorter than 999 characters.")
 					return sent_mail
 				}
 
@@ -3215,7 +3261,7 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 			} else {
 				// not \r\n, \r is followed by some other character
-				sent_mail.Error = errors.New("Body must only contain CRLF pairs.")
+				sent_mail.Error = errors.New("RawBody must only contain CRLF pairs.")
 				return sent_mail
 			}
 
@@ -3298,13 +3344,13 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 			remove all \r\n at the end then add \r\n (\r\n is CRLF)
 		*/
 
-		canonicalized_body = append(canonicalized_body, (*(*outbound_mail).Body)...)
+		canonicalized_body = append(canonicalized_body, (*(*outbound_mail).RawBody)...)
 
 		for {
 
 			var start_len = len(canonicalized_body)
 
-			canonicalized_body = bytes.TrimSuffix((*(*outbound_mail).Body), []byte("\r\n"))
+			canonicalized_body = bytes.TrimSuffix((*(*outbound_mail).RawBody), []byte("\r\n"))
 
 			var end_len = len(canonicalized_body)
 
@@ -4123,33 +4169,11 @@ func new_socket_SendMail(outbound_mail *OutboundMail, connect_host string, to_ad
 		conn.Write([]byte(k + ": " + v + "\r\n"))
 	}
 
-	var first_characters_length = len((*(*outbound_mail).Body))
-
-	if (first_characters_length > 700) {
-		// use the first 700 characters to determine if the body already has the Content-Type header due to a multipart/mixed or multipart/alternative type
-		first_characters_length = 700
-	}
-
-	var first_characters = make([]byte, 0)
-
-	for b := range (*(*outbound_mail).Body) {
-		if (b == first_characters_length) {
-			break
-		}
-		first_characters = append(first_characters, (*(*outbound_mail).Body)[b])
-	}
-
-	// make first_characters lowercase
-	first_characters = bytes.ToLower(first_characters)
-
-	if (bytes.Index(first_characters, []byte("content-type")) != 0) {
-		// the body does not include a content-type header
-		// write another CRLF pair
-		conn.Write([]byte("\r\n"))
-	}
+	// write another CRLF pair
+	conn.Write([]byte("\r\n"))
 
 	// send the email body
-	conn.Write((*(*outbound_mail).Body))
+	conn.Write((*(*outbound_mail).RawBody))
 	conn.Write([]byte("\r\n.\r\n"))
 
 	// read the response

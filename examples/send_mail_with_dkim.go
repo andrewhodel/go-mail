@@ -23,20 +23,17 @@ func main() {
 	om.Subj = "New go-mail user"
 
 	var body = []byte("there is a new go-mail user.")
+	om.Body = &body
+
 	var html_body = []byte("<div>there is a new go-mail user.</div>")
+	om.HtmlBody = &html_body
 
-	var multipart_alternative = gomail.MakeMultipartAlternative(&body, &html_body)
-
-	var attachment = []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	var attachment_part = gomail.MakeAttachmentPart("test.txt", &attachment, "text/plain")
-
-	var parts = make([]*[]byte, 0)
-	parts = append(parts, multipart_alternative)
-	parts = append(parts, attachment_part)
-
-	var multipart_mixed = gomail.MakeMultipartMixed(&parts)
-
-	om.Body = multipart_mixed
+	var attachment_file = []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	var attachment gomail.Attachment
+	attachment.File = &attachment_file
+	attachment.Name = "text.txt"
+	attachment.Type = "text/plain"
+	om.Attachments = append(om.Attachments, &attachment)
 
 	var to []*mail.Address
 	to = append(to, &mail.Address{"Andrew Hodel", "andrewhodel@gmail.com"})
