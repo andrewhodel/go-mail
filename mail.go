@@ -118,6 +118,9 @@ type OutboundMail struct {
 	// each server sent to is added to this
 	// modified during the send
 	ServersSentTo				*map[string] *bool
+	// do not send to domains
+	// these domains are not sent to, include the same domain as the From address for example, to handle sending on the same host
+	DoNotSendToDomains			[]string
 }
 
 type Esmtp struct {
@@ -3527,6 +3530,21 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 			// send using host of domain in receiving address
 			_, domain := GetLocalAndDomain(a.Address)
+
+			var do_not_send_to_domain = false
+
+			for ll := range (*outbound_mail).DoNotSendToDomains {
+				if (domain == (*outbound_mail).DoNotSendToDomains[ll]) {
+					do_not_send_to_domain = true
+					break
+				}
+			}
+
+			if (do_not_send_to_domain == true) {
+				// do not send to this domain as indicated in (*outbound_mail).DoNotSendToDomains
+				break
+			}
+
 			servers_with_addresses[domain] = append(servers_with_addresses[domain], a)
 
 			if (sent_mail.ReceivingServers[domain] == nil) {
