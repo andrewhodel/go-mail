@@ -3507,6 +3507,26 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 		rcpt_to_addresses = append(rcpt_to_addresses, (*outbound_mail).Bcc[i])
 	}
 
+	// write from header first
+	// required in this order for DKIM validation
+	buf := bytes.Buffer{}
+	buf.Write([]byte("from: " + headers["from"] + "\r\n"))
+
+	// send the other headers
+	for k,v := range headers {
+
+		if (k == "from") {
+			// already sent
+			continue
+		}
+
+		buf.Write([]byte(k + ": " + v + "\r\n"))
+
+	}
+
+	// add the headers
+	sent_mail.Headers = buf.Bytes()
+
 	// map[server_hostname] []*mail.Address
 	var servers_with_addresses = make(map[string] []mail.Address)
 
@@ -4169,11 +4189,8 @@ func new_socket_SendMail(outbound_mail *OutboundMail, connect_host string, to_ad
 		return
 	}
 
-	buf := bytes.Buffer{}
-
 	// write from header first
-	// required in this order for DKIM validation, often
-	buf.Write([]byte("from: " + headers["from"] + "\r\n"))
+	// required in this order for DKIM validation
 	conn.Write([]byte("from: " + headers["from"] + "\r\n"))
 
 	// send the other headers
@@ -4184,8 +4201,8 @@ func new_socket_SendMail(outbound_mail *OutboundMail, connect_host string, to_ad
 			continue
 		}
 
-		buf.Write([]byte(k + ": " + v + "\r\n"))
 		conn.Write([]byte(k + ": " + v + "\r\n"))
+
 	}
 
 	// write another CRLF pair
@@ -4226,9 +4243,6 @@ func new_socket_SendMail(outbound_mail *OutboundMail, connect_host string, to_ad
 
 	conn.Write([]byte("QUIT\r\n"))
 	conn.Close()
-
-	// add the headers that were sent to the server
-	(*sent_mail).Headers = buf.Bytes()
 
 	if ((*(*sent_mail).ReceivingServers[connect_host]).ReplyCode == 250) {
 
