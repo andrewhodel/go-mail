@@ -217,8 +217,8 @@ func main() {
 
 		// email_data		raw email data as received (headers and body)
 		// headers		parsed headers
-		// parts_headers	headers of each body block
-		// parts		each body block
+		// parts_headers	headers of each body part (there is a special is_alternative header that exists if there is a multipart/alternative body or part.  Use it to distinguish between plain and html body parts)
+		// parts		each body part
 		// dkim_valid		true if DKIM validated by the domain's public key
 		// ip			ip address of the sending client
 		// esmtp_authed		ESTMP authed status
