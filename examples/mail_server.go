@@ -294,7 +294,8 @@ func main() {
 				from_address, _ := mail.ParseAddress((*mail_from))
 				om.From = from_address
 				om.Subj = (*headers)["subject"]
-				om.Body = (*email_data)[h_split_pos:end_split_pos]
+				var raw_body = (*email_data)[h_split_pos:end_split_pos]
+				om.RawBody = &raw_body
 
 				// add headers from received email
 				om.Headers = (*headers)

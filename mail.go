@@ -3184,43 +3184,49 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 		headers[strings.ToLower(k)] = v
 	}
 
-	if (len((*outbound_mail).Attachments) > 0) {
+	if ((*outbound_mail).RawBody == nil) {
 
-		// this is a multipart/mixed body
+		// create the RawBody from Body, HtmlBody and Attachments
 
-		// make multipart/alternative of Body and HtmlBody
-		var alt_boundary = ""
-		var alt_body *[]byte
-		alt_boundary, alt_body = makeMultipartAlternative((*outbound_mail).Body, (*outbound_mail).HtmlBody)
+		if (len((*outbound_mail).Attachments) > 0) {
 
-		// add header content-type: multipart/alternative with boundary to alt_body
-		var h = []byte("content-type: multipart/alternative; boundary=\"" + alt_boundary + "\"\r\n\r\n")
+			// this is a multipart/mixed body
 
-		(*alt_body) = append(h, (*alt_body)...)
+			// make multipart/alternative of Body and HtmlBody
+			var alt_boundary = ""
+			var alt_body *[]byte
+			alt_boundary, alt_body = makeMultipartAlternative((*outbound_mail).Body, (*outbound_mail).HtmlBody)
 
-		// make multipart/mixed of alt_body and attachments
-		var parts []*[]byte
+			// add header content-type: multipart/alternative with boundary to alt_body
+			var h = []byte("content-type: multipart/alternative; boundary=\"" + alt_boundary + "\"\r\n\r\n")
 
-		parts = append(parts, alt_body)
+			(*alt_body) = append(h, (*alt_body)...)
 
-		for l := range (*outbound_mail).Attachments {
-			parts = append(parts, makeAttachmentPart((*outbound_mail).Attachments[l]))
+			// make multipart/mixed of alt_body and attachments
+			var parts []*[]byte
+
+			parts = append(parts, alt_body)
+
+			for l := range (*outbound_mail).Attachments {
+				parts = append(parts, makeAttachmentPart((*outbound_mail).Attachments[l]))
+			}
+
+			var boundary = ""
+			boundary, (*outbound_mail).RawBody = makeMultipartMixed(&parts)
+
+			// add header content-type: multipart/mixed with boundary
+			headers["content-type"] = "multipart/mixed; boundary=\"" + boundary + "\""
+
+		} else {
+
+			// this is a multipart/alternative body
+			var boundary = ""
+			boundary, (*outbound_mail).RawBody = makeMultipartAlternative((*outbound_mail).Body, (*outbound_mail).HtmlBody)
+
+			// add header content-type: multipart/alternative with boundary
+			headers["content-type"] = "multipart/alternative; boundary=\"" + boundary + "\""
+
 		}
-
-		var boundary = ""
-		boundary, (*outbound_mail).RawBody = makeMultipartMixed(&parts)
-
-		// add header content-type: multipart/mixed with boundary
-		headers["content-type"] = "multipart/mixed; boundary=\"" + boundary + "\""
-
-	} else {
-
-		// this is a multipart/alternative body
-		var boundary = ""
-		boundary, (*outbound_mail).RawBody = makeMultipartAlternative((*outbound_mail).Body, (*outbound_mail).HtmlBody)
-
-		// add header content-type: multipart/alternative with boundary
-		headers["content-type"] = "multipart/alternative; boundary=\"" + boundary + "\""
 
 	}
 
@@ -3287,7 +3293,7 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 		if ((*outbound_mail).DkimSigningAlgo != "rsa-sha256") {
 			sent_mail.Error = errors.New("invalid DkimSigningAlgo")
-		return sent_mail
+			return sent_mail
 		}
 
 		if ((*outbound_mail).DkimExpireSeconds == 0) {
