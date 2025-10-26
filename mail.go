@@ -3595,7 +3595,6 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 			// supporting resends with the same OutboundMail
 			// this server has not already been sent to
 
-			fmt.Println("connect_host", connect_host)
 			new_socket_SendMail(outbound_mail, connect_host, servers_with_addresses[connect_host], &sent_mail, headers)
 
 		}
