@@ -3568,7 +3568,7 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 			if (do_not_send_to_domain == true) {
 				// do not send to this domain as indicated in (*outbound_mail).DoNotSendToDomains
-				break
+				continue
 			}
 
 			servers_with_addresses[domain] = append(servers_with_addresses[domain], a)
