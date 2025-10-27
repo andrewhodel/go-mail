@@ -622,6 +622,8 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 				real_headers := make([]string, 0)
 				var headers_sent = false
 
+				var header_lines [][]byte
+
 				// limit the number of DKIM lookups
 				var dkim_lookups = 0
 				var validate_dkim = false
@@ -646,9 +648,9 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 					if (smtp_data[i] == []byte("\n")[0] && smtp_data[i-1] == []byte("\r")[0]) {
 
-						// this is at \r\n
+						// this is at \r\n and the \n was not added to v
 						// remove the \r from v
-						v = v[:len(v)-1]
+						v = slices.Delete(v, len(v) - 1, len(v))
 
 						//fmt.Println("LINE:", len(v), string(v))
 
@@ -657,6 +659,150 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 							// empty line indicates body or new block start
 
 							if (headers_sent == false) {
+
+								// the headers have not been sent to the closures
+
+								// parse the header lines to combine folded/multiline headers
+								var last_non_folded_continuation_line_index = 0
+								for l := range header_lines {
+
+									var header_line = header_lines[l]
+
+									if (header_line[0] == []byte(" ")[0] || header_line[0] == []byte("\t")[0]) {
+
+										if (l == 0) {
+											// invalid format
+											return
+										}
+
+										// this is a folded/multiline continuation line
+
+										// remove LWS (linear white space, space or tab) from the start of the header value
+										header_line = bytes.TrimLeft(header_line, " ")
+										header_line = bytes.TrimLeft(header_line, "\t")
+
+										// prepend a space
+										header_line = append([]byte(" "), header_line...)
+
+										// add header_line to last_non_folded_continuation_line_index
+										header_lines[last_non_folded_continuation_line_index] = append(header_lines[last_non_folded_continuation_line_index], header_line...)
+
+										// empty this header_line
+										header_lines[l] = nil
+
+									} else {
+
+										last_non_folded_continuation_line_index = l
+
+									}
+
+								}
+
+								// parse the header lines that combined the folded/multiline headers
+								for l := range header_lines {
+
+									var header_line = header_lines[l]
+
+									if (len(header_line) == 0) {
+										// empty
+										continue
+									}
+
+									ss := bytes.Split(header_line, []byte(":"))
+
+									if (len(ss) > 1) {
+
+										// header contains a : meaning a name and value exist
+
+										// remove LWS (linear white space, space or tab) from the start of the header value
+										ss[1] = bytes.TrimLeft(ss[1], " ")
+										ss[1] = bytes.TrimLeft(ss[1], "\t")
+
+										// ss[0] is the header name, store it in lowercase
+										header_name := bytes.ToLower(ss[0])
+
+										// set the header_value
+										header_value := ss[1]
+
+										//fmt.Printf("smtp data header: %s: %s\n", header_name, header_value)
+
+										if (string(header_name) != "dkim-signature") {
+
+											// add header if not DKIM
+											headers[string(header_name)] = string(header_value)
+											real_headers = append(real_headers, string(header_name))
+
+										}
+
+										if (string(header_name) == "content-type") {
+
+											// add boundary from content-type to support multipart
+											boundary = get_boundary_from_content_type_header(header_value)
+
+										} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3 && dkim_public_key == "") {
+
+											// the dkim_public_key has not been found yet
+
+											// only allow 3 DKIM lookups to prevent a sending client from making the server perform many DNS requests
+											//fmt.Println("\nDKIM Validation")
+
+											// validate DKIM using the 6 required fields
+											// v, a, d, s, bh, b
+											// and possibly the optional field
+											// l
+											temp, _ := ParseTags(header_value)
+											dkim_hp = temp
+
+											if (dkim_hp["v"] == "" || dkim_hp["a"] == "" || dkim_hp["d"] == "" || dkim_hp["s"] == "" || dkim_hp["bh"] == "" || dkim_hp["b"] == "") {
+												//fmt.Println("incomplete dkim header")
+											} else {
+
+												// required DKIM header tags
+												// v= is the version
+												// a= is the signing algorithm
+												// d= is the domain
+												// s= is the selector (subdomain)
+
+												// get the DKIM public key from DNS
+												// it should be looked up from many physical locations on the planet
+												// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, TLS validation of the from domain would make SMTP perfect.  TLS validation of the MAIL FROM sender would make SMTP better.)
+												// make a TXT dns query to selector._domainkey.domain to get the key
+												var query_domain = dkim_hp["s"] + "._domainkey." + dkim_hp["d"]
+												//fmt.Println("DKIM DNS Query TXT:", query_domain)
+
+												// keep track of the number of dkim lookups
+												dkim_lookups = dkim_lookups + 1
+
+												l_txts, l_err := net.LookupTXT(query_domain)
+												if (l_err == nil) {
+
+													for t := range l_txts {
+														// get the last non empty p= value in the string results
+														pp, _ := ParseTags([]byte(l_txts[t]))
+														if (pp["p"] != "") {
+															dkim_public_key = pp["p"]
+														}
+													}
+
+													//fmt.Println("TXT Response base64 p=", dkim_public_key)
+													validate_dkim = true
+
+													// add the dkim-signature header that was used to headers
+													headers[string(header_name)] = string(header_value)
+													real_headers = append(real_headers, string(header_name))
+
+												} else {
+													headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(DNS TXT record not found " + query_domain + ")"
+												}
+
+											}
+
+										}
+
+									}
+
+								}
+
 								// send the headers for validation
 								authed = headers_func(headers, ip, &esmtp_authed)
 
@@ -668,6 +814,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								// only send them once
 								headers_sent = true
+
 							}
 
 							//fmt.Printf("email body or new block start at %d\n", i)
@@ -1151,9 +1298,10 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 											ml := false
 											if (len(part) > l + 1) {
-												// check for multiline header
+												// check for folded/multiline header
+												// FIX not reading full folded header in part
 												if (part[l+1] == []byte(" ")[0] || part[l+1] == []byte("\t")[0]) {
-													//fmt.Printf("multiline header found\n")
+													//fmt.Printf("folded/multiline header found\n")
 													ml = true
 												}
 											}
@@ -1172,6 +1320,10 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 													// remove any newlines from ss[1]
 													ss[1] = bytes.ReplaceAll(ss[1], []byte("\r"), []byte(""))
 													ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
+
+													// remove LWS (linear white space, space or tab) from the start of the header value
+													ss[1] = bytes.TrimLeft(ss[1], " ")
+													ss[1] = bytes.TrimLeft(ss[1], "\t")
 
 													// add header
 													part_headers[string(bytes.ToLower(ss[0]))] = string(ss[1])
@@ -1277,126 +1429,21 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 						}
 
-						if (len(smtp_data) > i+1) {
-							// test if the next character is a space
-							// indicating a continued header
-							//fmt.Printf("next character after \r\n in this header: %s\n", smtp_data[i+1])
-							if (smtp_data[i+1] == []byte(" ")[0] || smtp_data[i+1] == []byte("\t")[0]) {
-								// continue adding to this header, without resetting v
-								//fmt.Println("Header is continued on another line:", string(v))
-								continue
-							}
-						}
-
 						if (len(v) > 0) {
-							// check if this line is a header
-							//fmt.Println("testing if line is a header", string(v))
 
-							ss := bytes.Split(v, []byte(":"))
-
-							if (len(ss) > 1) {
-
-								// ss[0] is the header name, store it in lowercase
-								header_name := bytes.ToLower(ss[0])
-								// remove all spaces
-								header_name = bytes.Trim(header_name, " ")
-								// remove the header name from the ss slice
-								ss = ss[1:len(ss)]
-
-								// put all the rest of the parts back together for the header value
-								header_value := bytes.Join(ss, []byte(":"))
-
-								// if part of the header_value is 8 spaces or a tab, remove that
-								if (bytes.Index(header_value, []byte("        ")) > -1) {
-									header_value = bytes.ReplaceAll(header_value, []byte("        "), []byte(""))
-								} else if (bytes.Index(header_value, []byte("\t")) > -1) {
-									header_value = bytes.ReplaceAll(header_value, []byte("\t"), []byte(""))
-								}
-
-								// if the first character is a space, remove that
-								header_value = bytes.TrimLeft(header_value, " ")
-
-								//fmt.Printf("smtp data header: %s: %s\n", header_name, header_value)
-
-								// add header if not DKIM
-								if (string(header_name) != "dkim-signature") {
-									headers[string(header_name)] = string(header_value)
-									real_headers = append(real_headers, string(header_name))
-								}
-
-								if (string(header_name) == "content-type") {
-
-									// add boundary from content-type to support multipart
-									boundary = get_boundary_from_content_type_header(header_value)
-
-								} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3 && dkim_public_key == "") {
-
-									// the dkim_public_key has not been found yet
-
-									// only allow 3 DKIM lookups to prevent a sending client from making the server perform many DNS requests
-									//fmt.Println("\nDKIM Validation")
-
-									// validate DKIM using the 6 required fields
-									// v, a, d, s, bh, b
-									// and possibly the optional field
-									// l
-									temp, _ := ParseTags(header_value)
-									dkim_hp = temp
-
-									if (dkim_hp["v"] == "" || dkim_hp["a"] == "" || dkim_hp["d"] == "" || dkim_hp["s"] == "" || dkim_hp["bh"] == "" || dkim_hp["b"] == "") {
-										//fmt.Println("incomplete dkim header")
-									} else {
-
-										// required DKIM header tags
-										// v= is the version
-										// a= is the signing algorithm
-										// d= is the domain
-										// s= is the selector (subdomain)
-
-										// get the DKIM public key from DNS
-										// it should be looked up from many physical locations on the planet
-										// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, TLS validation of the from domain would make SMTP perfect.  TLS validation of the MAIL FROM sender would make SMTP better.)
-										// make a TXT dns query to selector._domainkey.domain to get the key
-										var query_domain = dkim_hp["s"] + "._domainkey." + dkim_hp["d"]
-										//fmt.Println("DKIM DNS Query TXT:", query_domain)
-
-										// keep track of the number of dkim lookups
-										dkim_lookups = dkim_lookups + 1
-
-										l_txts, l_err := net.LookupTXT(query_domain)
-										if (l_err == nil) {
-
-											for t := range l_txts {
-												// get the last non empty p= value in the string results
-												pp, _ := ParseTags([]byte(l_txts[t]))
-												if (pp["p"] != "") {
-													dkim_public_key = pp["p"]
-												}
-											}
-
-											//fmt.Println("TXT Response base64 p=", dkim_public_key)
-											validate_dkim = true
-
-											// add the dkim-signature header that was used to headers
-											headers[string(header_name)] = string(header_value)
-											real_headers = append(real_headers, string(header_name))
-
-										} else {
-											headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(DNS TXT record not found " + query_domain + ")"
-										}
-
-									}
-
-								}
-
-							}
+							// v contains a header line, this is not called after two CRLF pairs from smtp_data
+							var header_line = make([]byte, 0)
+							header_line = append(header_line, v...)
+							header_lines = append(header_lines, header_line)
 
 						}
 
 						v = make([]byte, 0)
 						continue
+
 					}
 
+					// add byte to v
 					v = append(v, smtp_data[i])
 
 				}
@@ -1532,9 +1579,10 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 											ml := false
 											if (len(part) > l + 1) {
-												// check for multiline header
+												// check for folded/multiline header
+												// FIX not reading full folded header in part
 												if (part[l+1] == []byte(" ")[0] || part[l+1] == []byte("\t")[0]) {
-													//fmt.Printf("multiline header found\n")
+													//fmt.Printf("folded/multiline header found\n")
 													ml = true
 												}
 											}
@@ -1553,6 +1601,10 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 													// remove any newlines from ss[1]
 													ss[1] = bytes.ReplaceAll(ss[1], []byte("\r"), []byte(""))
 													ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
+
+													// remove LWS (linear white space, space or tab) from the start of the header value
+													ss[1] = bytes.TrimLeft(ss[1], " ")
+													ss[1] = bytes.TrimLeft(ss[1], "\t")
 
 													// add header
 													part_headers[string(bytes.ToLower(ss[0]))] = string(ss[1])
