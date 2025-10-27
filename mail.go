@@ -1229,104 +1229,28 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								//fmt.Println("part_size", part_size, "boundary_len", boundary_len)
 
 								// get the headers from this part
-								vv := make([]byte, 0)
-								last_header_end_pos := 0
-								for l := range part {
+								last_header_end_pos := bytes.Index(part, []byte("\r\n\r\n"))
+								var part_header_lines = bytes.Split(part[0:last_header_end_pos], []byte("\r\n"))
+								part_headers = get_headers_from_header_lines(part_header_lines)
 
-									// skip past --boundary\r\n
-									if (l < boundary_len + 2) {
-										continue
-									}
+								if (strings.Index(headers["content-type"], "multipart/alternative") == 0) {
 
-									vv = append(vv, part[l])
-
-									//fmt.Printf("l: %d c: %c\n", l, part[l])
-
-									if (len(vv) > 3) {
-
-										if (part[l-1] == []byte("\r")[0] && part[l] == []byte("\n")[0]) {
-
-											ml := false
-											if (len(part) > l + 1) {
-												// check for folded/multiline header
-												// FIX not reading full folded header in part
-												if (part[l+1] == []byte(" ")[0] || part[l+1] == []byte("\t")[0]) {
-													//fmt.Printf("folded/multiline header found\n")
-													ml = true
-												}
-											}
-
-											if (!ml) {
-
-												//fmt.Printf("header found: %s\n", vv)
-												ss := bytes.Split(vv, []byte(":"))
-												for ssc := range ss {
-													// trim spaces
-													ss[ssc] = bytes.Trim(ss[ssc], " ")
-												}
-
-												if (len(ss) > 1) {
-
-													// remove any newlines from ss[1]
-													ss[1] = bytes.ReplaceAll(ss[1], []byte("\r"), []byte(""))
-													ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
-
-													// remove LWS (linear white space, space or tab) from the start of the header value
-													ss[1] = bytes.TrimLeft(ss[1], " ")
-													ss[1] = bytes.TrimLeft(ss[1], "\t")
-
-													// add header
-													part_headers[string(bytes.ToLower(ss[0]))] = string(ss[1])
-
-													if (strings.Index(headers["content-type"], "multipart/alternative") == 0) {
-
-														// the entire body is a multipart/alternative, multipart/mixed that can include attachments with multipart/alternative inside of it
-														// add a special is_alternative header to each part
-														// allowing selection of multipart/alternative parts from inbound_parts easily
-														// as email expects only 1 multipart/alternative that represents the body text as text/plain or text/html
-														// regardless of there being an enclosing multipart/mixed that can include attachments
-														part_headers[string("is_alternative")] = "true"
-
-													}
-
-													last_header_end_pos = l + 3
-
-												}
-
-												// reset test string
-												vv = make([]byte, 0)
-											}
-
-											if (len(part) > l + 2) {
-												if (part[l-1] == []byte("\r")[0] && part[l] == []byte("\n")[0] && part[l+1] == []byte("\r")[0] && part[l+2] == []byte("\n")[0]) {
-													// last header found
-													break
-												}
-											}
-
-										}
-
-									}
-
-								}
-
-								if (last_header_end_pos > len(part)) {
-
-									// the multipart data was sent in an invalid format
-									conn.Write([]byte("501 Syntax error in parameters or arguments; a multipart header block did not have an extra CRLF\r\n"))
-									conn.Close()
-									return
+									// add a special is_alternative header to each part
+									// allowing selection of multipart/alternative parts from inbound_parts easily
+									// as email expects only 1 multipart/alternative that represents the body text as text/plain or text/html
+									// regardless of there being an enclosing multipart/mixed that can include attachments
+									part_headers[string("is_alternative")] = "true"
 
 								}
 
 								// remove the headers from part
-								part = slices.Delete(part, 0, last_header_end_pos)
+								part = slices.Delete(part, 0, last_header_end_pos + 4)
 
 								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
 
-								fmt.Println("\nnew part from body")
-								fmt.Printf("part_headers: %+v\n", part_headers)
-								fmt.Println(string(part))
+								//fmt.Println("\nnew part from body")
+								//fmt.Printf("part_headers: %+v\n", part_headers)
+								//fmt.Println(string(part))
 
 							} else {
 
@@ -1433,6 +1357,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 					if (strings.Index(parts_headers[l]["content-type"], "multipart/alternative") == 0) {
 
+						// delete the part enclosing a multipart/alternative part
 						parts_to_delete = append(parts_to_delete, l)
 
 						// parse multipart/alternative inside multipart/mixed into parts with special header indicating that
@@ -1455,12 +1380,6 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								var part = make([]byte, 0)
 								part_headers := make(map[string]string)
-
-								// add a special is_alternative header to each part
-								// allowing selection of multipart/alternative parts from inbound_parts easily
-								// as email expects only 1 multipart/alternative that represents the body text as text/plain or text/html
-								// regardless of there being an enclosing multipart/mixed that can include attachments
-								part_headers[string("is_alternative")] = "true"
 
 								// there is a boundary
 
@@ -1509,95 +1428,27 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								}
 
 								// get the headers from this part
-								vv := make([]byte, 0)
-								last_header_end_pos := 0
-								for l := range part {
+								last_header_end_pos := bytes.Index(part, []byte("\r\n\r\n"))
+								var part_header_lines = bytes.Split(part[0:last_header_end_pos], []byte("\r\n"))
+								part_headers = get_headers_from_header_lines(part_header_lines)
 
-									// skip past --boundary\r\n
-									if (l < boundary_len + 2) {
-										continue
-									}
-
-									vv = append(vv, part[l])
-
-									//fmt.Printf("l: %d c: %c\n", l, part[l])
-
-									if (len(vv) > 3) {
-
-										if (part[l-1] == []byte("\r")[0] && part[l] == []byte("\n")[0]) {
-
-											ml := false
-											if (len(part) > l + 1) {
-												// check for folded/multiline header
-												// FIX not reading full folded header in part
-												if (part[l+1] == []byte(" ")[0] || part[l+1] == []byte("\t")[0]) {
-													//fmt.Printf("folded/multiline header found\n")
-													ml = true
-												}
-											}
-
-											if (!ml) {
-
-												//fmt.Printf("header found: %s\n", vv)
-												ss := bytes.Split(vv, []byte(":"))
-												for ssc := range ss {
-													// trim spaces
-													ss[ssc] = bytes.Trim(ss[ssc], " ")
-												}
-
-												if (len(ss) > 1) {
-
-													// remove any newlines from ss[1]
-													ss[1] = bytes.ReplaceAll(ss[1], []byte("\r"), []byte(""))
-													ss[1] = bytes.ReplaceAll(ss[1], []byte("\n"), []byte(""))
-
-													// remove LWS (linear white space, space or tab) from the start of the header value
-													ss[1] = bytes.TrimLeft(ss[1], " ")
-													ss[1] = bytes.TrimLeft(ss[1], "\t")
-
-													// add header
-													part_headers[string(bytes.ToLower(ss[0]))] = string(ss[1])
-
-													last_header_end_pos = l + 3
-
-												}
-
-												// reset test string
-												vv = make([]byte, 0)
-											}
-
-											if (len(part) > l + 2) {
-												if (part[l-1] == []byte("\r")[0] && part[l] == []byte("\n")[0] && part[l+1] == []byte("\r")[0] && part[l+2] == []byte("\n")[0]) {
-													// last header found
-													break
-												}
-											}
-
-										}
-
-									}
-
-								}
-
-								if (last_header_end_pos > len(part)) {
-
-									// the multipart data was sent in an invalid format
-									conn.Write([]byte("501 Syntax error in parameters or arguments; a multipart header block did not have an extra CRLF\r\n"))
-									conn.Close()
-									return
-
-								}
+								// add a special is_alternative header to each part
+								// allowing selection of multipart/alternative parts from inbound_parts easily
+								// as email expects only 1 multipart/alternative that represents the body text as text/plain or text/html
+								// regardless of there being an enclosing multipart/mixed that can include attachments
+								part_headers[string("is_alternative")] = "true"
 
 								// remove the headers from part
-								part = slices.Delete(part, 0, last_header_end_pos)
+								part = slices.Delete(part, 0, last_header_end_pos + 4)
+
 								// remove the last \r\n from part
 								part = slices.Delete(part, len(part) - 2, len(part))
 
 								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
 
-								fmt.Println("\nnew part from multipart/alternative inside multipart/mixed")
-								fmt.Printf("part_headers: %+v\n", part_headers)
-								fmt.Println(string(part))
+								//fmt.Println("\nnew part from multipart/alternative inside multipart/mixed")
+								//fmt.Printf("part_headers: %+v\n", part_headers)
+								//fmt.Println(string(part))
 
 								// iteration of parts_headers using range does not iterate items added during the iteration
 								parts_headers = append(parts_headers, part_headers)
