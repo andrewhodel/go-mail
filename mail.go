@@ -129,7 +129,7 @@ type Esmtp struct {
 
 }
 
-func ParseTags(b []byte) (map[string]string, []string) {
+func ParseTags(b string) (map[string]string, []string) {
 
 	// converts "   a=asdf;  b=afsdf" to
 	// v["a"] = "asdf"
@@ -141,8 +141,8 @@ func ParseTags(b []byte) (map[string]string, []string) {
 	var order = make([]string, 0)
 
 	var tag_found = false
-	var tag []byte
-	var value []byte
+	var tag string
+	var value string
 	i := 0
 	for {
 
@@ -159,22 +159,24 @@ func ParseTags(b []byte) (map[string]string, []string) {
 
 				if (b[i] != ';') {
 					// last character is part of the value
-					value = append(value, b[i])
+					value += string(b[i])
 				}
 
-				//fmt.Println("tag", string(tag), string(value))
+				//fmt.Println("tag", tag, value)
 
 				// add the tag to tags
-				tags[string(tag)] = string(value)
-				order = append(order, string(tag))
+				tags[tag] = value
+				order = append(order, tag)
 
 				tag_found = false
-				tag = nil
-				value = nil
+				tag = ""
+				value = ""
 				i = i + 1
+
 				continue
+
 			} else {
-				value = append(value, b[i])
+				value += string(b[i])
 			}
 
 		} else {
@@ -182,15 +184,20 @@ func ParseTags(b []byte) (map[string]string, []string) {
 			// add to the tag
 
 			if (b[i] == '=') {
+
 				// separator found
 				tag_found = true
 				i = i + 1
+
 				continue
+
 			} else {
+
 				// do not add tabs or spaces in the tag name
 				if (b[i] != 9 && b[i] != ' ') {
-					tag = append(tag, b[i])
+					tag += string(b[i])
 				}
+
 			}
 
 		}
@@ -662,139 +669,82 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								// the headers have not been sent to the closures
 
-								// parse the header lines to combine folded/multiline headers
-								var last_non_folded_continuation_line_index = 0
-								for l := range header_lines {
+								headers = get_headers_from_header_lines(header_lines)
 
-									var header_line = header_lines[l]
+								for header_name := range headers {
 
-									if (header_line[0] == []byte(" ")[0] || header_line[0] == []byte("\t")[0]) {
+									// set the header_value
+									header_value := headers[header_name]
 
-										if (l == 0) {
-											// invalid format
-											return
-										}
+									//fmt.Printf("smtp data header: %s: %s\n", header_name, header_value)
 
-										// this is a folded/multiline continuation line
+									if (header_name != "dkim-signature") {
 
-										// remove LWS (linear white space, space or tab) from the start of the header value
-										header_line = bytes.TrimLeft(header_line, " ")
-										header_line = bytes.TrimLeft(header_line, "\t")
-
-										// prepend a space
-										header_line = append([]byte(" "), header_line...)
-
-										// add header_line to last_non_folded_continuation_line_index
-										header_lines[last_non_folded_continuation_line_index] = append(header_lines[last_non_folded_continuation_line_index], header_line...)
-
-										// empty this header_line
-										header_lines[l] = nil
-
-									} else {
-
-										last_non_folded_continuation_line_index = l
+										// add header if not DKIM
+										headers[header_name] = header_value
+										real_headers = append(real_headers, header_name)
 
 									}
 
-								}
+									if (header_name == "content-type") {
 
-								// parse the header lines that combined the folded/multiline headers
-								for l := range header_lines {
+										// add boundary from content-type to support multipart
+										boundary = get_boundary_from_content_type_header(header_value)
 
-									var header_line = header_lines[l]
+									} else if (header_name == "dkim-signature" && dkim_lookups <= 3 && dkim_public_key == "") {
 
-									if (len(header_line) == 0) {
-										// empty
-										continue
-									}
+										// the dkim_public_key has not been found yet
 
-									ss := bytes.Split(header_line, []byte(":"))
+										// only allow 3 DKIM lookups to prevent a sending client from making the server perform many DNS requests
+										//fmt.Println("\nDKIM Validation")
 
-									if (len(ss) > 1) {
+										// validate DKIM using the 6 required fields
+										// v, a, d, s, bh, b
+										// and possibly the optional field
+										// l
+										temp, _ := ParseTags(header_value)
+										dkim_hp = temp
 
-										// header contains a : meaning a name and value exist
+										if (dkim_hp["v"] == "" || dkim_hp["a"] == "" || dkim_hp["d"] == "" || dkim_hp["s"] == "" || dkim_hp["bh"] == "" || dkim_hp["b"] == "") {
+											//fmt.Println("incomplete dkim header")
+										} else {
 
-										// remove LWS (linear white space, space or tab) from the start of the header value
-										ss[1] = bytes.TrimLeft(ss[1], " ")
-										ss[1] = bytes.TrimLeft(ss[1], "\t")
+											// required DKIM header tags
+											// v= is the version
+											// a= is the signing algorithm
+											// d= is the domain
+											// s= is the selector (subdomain)
 
-										// ss[0] is the header name, store it in lowercase
-										header_name := bytes.ToLower(ss[0])
+											// get the DKIM public key from DNS
+											// it should be looked up from many physical locations on the planet
+											// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, TLS validation of the from domain would make SMTP perfect.  TLS validation of the MAIL FROM sender would make SMTP better.)
+											// make a TXT dns query to selector._domainkey.domain to get the key
+											var query_domain = dkim_hp["s"] + "._domainkey." + dkim_hp["d"]
+											//fmt.Println("DKIM DNS Query TXT:", query_domain)
 
-										// set the header_value
-										header_value := ss[1]
+											// keep track of the number of dkim lookups
+											dkim_lookups = dkim_lookups + 1
 
-										//fmt.Printf("smtp data header: %s: %s\n", header_name, header_value)
+											l_txts, l_err := net.LookupTXT(query_domain)
+											if (l_err == nil) {
 
-										if (string(header_name) != "dkim-signature") {
-
-											// add header if not DKIM
-											headers[string(header_name)] = string(header_value)
-											real_headers = append(real_headers, string(header_name))
-
-										}
-
-										if (string(header_name) == "content-type") {
-
-											// add boundary from content-type to support multipart
-											boundary = get_boundary_from_content_type_header(string(header_value))
-
-										} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3 && dkim_public_key == "") {
-
-											// the dkim_public_key has not been found yet
-
-											// only allow 3 DKIM lookups to prevent a sending client from making the server perform many DNS requests
-											//fmt.Println("\nDKIM Validation")
-
-											// validate DKIM using the 6 required fields
-											// v, a, d, s, bh, b
-											// and possibly the optional field
-											// l
-											temp, _ := ParseTags(header_value)
-											dkim_hp = temp
-
-											if (dkim_hp["v"] == "" || dkim_hp["a"] == "" || dkim_hp["d"] == "" || dkim_hp["s"] == "" || dkim_hp["bh"] == "" || dkim_hp["b"] == "") {
-												//fmt.Println("incomplete dkim header")
-											} else {
-
-												// required DKIM header tags
-												// v= is the version
-												// a= is the signing algorithm
-												// d= is the domain
-												// s= is the selector (subdomain)
-
-												// get the DKIM public key from DNS
-												// it should be looked up from many physical locations on the planet
-												// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, TLS validation of the from domain would make SMTP perfect.  TLS validation of the MAIL FROM sender would make SMTP better.)
-												// make a TXT dns query to selector._domainkey.domain to get the key
-												var query_domain = dkim_hp["s"] + "._domainkey." + dkim_hp["d"]
-												//fmt.Println("DKIM DNS Query TXT:", query_domain)
-
-												// keep track of the number of dkim lookups
-												dkim_lookups = dkim_lookups + 1
-
-												l_txts, l_err := net.LookupTXT(query_domain)
-												if (l_err == nil) {
-
-													for t := range l_txts {
-														// get the last non empty p= value in the string results
-														pp, _ := ParseTags([]byte(l_txts[t]))
-														if (pp["p"] != "") {
-															dkim_public_key = pp["p"]
-														}
+												for t := range l_txts {
+													// get the last non empty p= value in the string results
+													pp, _ := ParseTags(l_txts[t])
+													if (pp["p"] != "") {
+														dkim_public_key = pp["p"]
 													}
-
-													//fmt.Println("TXT Response base64 p=", dkim_public_key)
-													validate_dkim = true
-
-													// add the dkim-signature header that was used to headers
-													headers[string(header_name)] = string(header_value)
-													real_headers = append(real_headers, string(header_name))
-
-												} else {
-													headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(DNS TXT record not found " + query_domain + ")"
 												}
 
+												//fmt.Println("TXT Response base64 p=", dkim_public_key)
+												validate_dkim = true
+
+												// add the dkim-signature header that was used to headers
+												headers[header_name] = header_value
+												real_headers = append(real_headers, header_name)
+
+											} else {
+												headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(DNS TXT record not found " + query_domain + ")"
 											}
 
 										}
@@ -1169,7 +1119,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 												// add the DKIM header that was used
 												// with no newlines, an empty b= tag and a space for each wsp sequence
 												// in the original header's order
-												dkim_tags, dkim_order := ParseTags([]byte(headers["dkim-signature"]))
+												dkim_tags, dkim_order := ParseTags(headers["dkim-signature"])
 												var canonicalized_dkim_header_string = ""
 
 												for dh := range dkim_order {
