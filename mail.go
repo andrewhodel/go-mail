@@ -1321,13 +1321,12 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								// remove the headers from part
 								part = slices.Delete(part, 0, last_header_end_pos)
-								// remove the last \r\n from part
-								part = slices.Delete(part, len(part) - 2, len(part))
 
 								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
 
-								//fmt.Printf("part_headers: %+v\n", part_headers)
-								//fmt.Println(string(part))
+								fmt.Println("\nnew part from body")
+								fmt.Printf("part_headers: %+v\n", part_headers)
+								fmt.Println(string(part))
 
 							} else {
 
@@ -1596,9 +1595,9 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
 
-								//fmt.Println("new part from multipart/alternative inside multipart/mixed")
-								//fmt.Printf("part_headers: %+v\n", part_headers)
-								//fmt.Println(part)
+								fmt.Println("\nnew part from multipart/alternative inside multipart/mixed")
+								fmt.Printf("part_headers: %+v\n", part_headers)
+								fmt.Println(string(part))
 
 								// iteration of parts_headers using range does not iterate items added during the iteration
 								parts_headers = append(parts_headers, part_headers)
