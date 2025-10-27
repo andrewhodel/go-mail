@@ -1233,6 +1233,9 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								var part_header_lines = bytes.Split(part[0:last_header_end_pos], []byte("\r\n"))
 								part_headers = get_headers_from_header_lines(part_header_lines)
 
+								// remove the headers from part
+								part = slices.Delete(part, 0, last_header_end_pos + 4)
+
 								if (strings.Index(headers["content-type"], "multipart/alternative") == 0) {
 
 									// add a special is_alternative header to each part
@@ -1241,10 +1244,10 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 									// regardless of there being an enclosing multipart/mixed that can include attachments
 									part_headers[string("is_alternative")] = "true"
 
-								}
+									// remove the last \r\n from part
+									part = slices.Delete(part, len(part) - 2, len(part))
 
-								// remove the headers from part
-								part = slices.Delete(part, 0, last_header_end_pos + 4)
+								}
 
 								//fmt.Printf("last_header_end_pos: %d\n", last_header_end_pos)
 
