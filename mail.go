@@ -4204,6 +4204,9 @@ func new_socket_SendMail(outbound_mail *OutboundMail, connect_host string, to_ad
 		if (k == "from") {
 			// already sent
 			continue
+		} else if (k == "bcc") {
+			// do not send bcc header
+			continue
 		}
 
 		conn.Write([]byte(k + ": " + v + "\r\n"))
