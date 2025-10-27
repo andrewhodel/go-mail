@@ -737,7 +737,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 										if (string(header_name) == "content-type") {
 
 											// add boundary from content-type to support multipart
-											boundary = get_boundary_from_content_type_header(header_value)
+											boundary = get_boundary_from_content_type_header(string(header_value))
 
 										} else if (string(header_name) == "dkim-signature" && dkim_lookups <= 3 && dkim_public_key == "") {
 
@@ -1488,7 +1488,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 						// parse multipart/alternative inside multipart/mixed into parts with special header indicating that
 
-						var boundary = get_boundary_from_content_type_header([]byte(parts_headers[l]["content-type"]))
+						var boundary = get_boundary_from_content_type_header(parts_headers[l]["content-type"])
 
 						//fmt.Println("parsing multipart_alternative part into parts with boundary", boundary)
 
@@ -1702,12 +1702,12 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 }
 
-func get_boundary_from_content_type_header(header_value []byte) (string) {
+func get_boundary_from_content_type_header(header_value string) (string) {
 
 	// return the boundary of the content-type header if boundary exists in it
 
 	// find the string boundary in lower case, because it may be spelled bOUndary or any other way
-	bb := bytes.Index(bytes.ToLower(header_value), []byte("boundary=\""))
+	bb := strings.Index(strings.ToLower(header_value), "boundary=\"")
 
 	//fmt.Printf("boundary=\" found at: %d in: %s\n", bb, header_value)
 
@@ -1715,11 +1715,87 @@ func get_boundary_from_content_type_header(header_value []byte) (string) {
 
 		// set boundary to the original header value because that's what is in the email body
 		bbb := header_value[bb + len("boundary=\""):len(header_value)]
-		return string(bytes.Trim(bbb, "\""))
+		return strings.Trim(bbb, "\"")
 
 	}
 
 	return ""
+
+}
+
+func get_headers_from_header_lines(header_lines [][]byte) (map[string] string) {
+
+	var headers = make(map[string] string)
+
+	// parse the header lines to combine folded/multiline headers
+	var last_non_folded_continuation_line_index = 0
+	for l := range header_lines {
+
+		var header_line = header_lines[l]
+
+		if (len(header_line) == 0) {
+			// empty line
+			continue
+		}
+
+		if (header_line[0] == []byte(" ")[0] || header_line[0] == []byte("\t")[0]) {
+
+			if (l == 0) {
+				// invalid format
+				return nil
+			}
+
+			// this is a folded/multiline continuation line
+
+			// remove LWS (linear white space, space or tab) from the start of the header value
+			header_line = bytes.TrimLeft(header_line, " ")
+			header_line = bytes.TrimLeft(header_line, "\t")
+
+			// prepend a space
+			header_line = append([]byte(" "), header_line...)
+
+			// add header_line to last_non_folded_continuation_line_index
+			header_lines[last_non_folded_continuation_line_index] = append(header_lines[last_non_folded_continuation_line_index], header_line...)
+
+			// empty this header_line
+			header_lines[l] = nil
+
+		} else {
+
+			last_non_folded_continuation_line_index = l
+
+		}
+
+	}
+
+	// parse the header lines that combined the folded/multiline headers
+	for l := range header_lines {
+
+		var header_line = header_lines[l]
+
+		if (len(header_line) == 0) {
+			// empty
+			continue
+		}
+
+		ss := bytes.Split(header_line, []byte(":"))
+
+		if (len(ss) > 1) {
+
+			// header contains a : meaning a name and value exist
+
+			// remove LWS (linear white space, space or tab) from the start of the header value
+			ss[1] = bytes.TrimLeft(ss[1], " ")
+			ss[1] = bytes.TrimLeft(ss[1], "\t")
+
+			// ss[0] is the header name, store it in lowercase with the header value
+			headers[string(bytes.ToLower(ss[0]))] = string(ss[1])
+
+		}
+
+	}
+
+	return headers
 
 }
 
