@@ -44,9 +44,9 @@ import (
 )
 
 type mail_from_func func(string, string, string, string, *bool) (bool, string)
-type rcpt_to_func func(string, string, *bool) (bool, string)
-type headers_func func(map[string]string, string, *bool) bool
-type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *bool, *string, *[]string)
+type rcpt_to_func func(string, string, *bool, string) (bool, string)
+type headers_func func(map[string]string, string, *bool, string, []string) bool
+type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *bool, string, []string)
 type pop3_auth_func func(string, string, string, string) bool
 type pop3_stat_func func(string) (int, int)
 type pop3_list_func func(string) (int, []int, []int)
@@ -353,7 +353,7 @@ func smtpExecCmd(ip_ac *ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls
 
 		(*mail_from) = string(s)
 
-		var mail_from_authed, mail_from_error_string = mail_from_func(string(s), ip, (*auth_login), (*auth_password), esmtp_authed)
+		var mail_from_authed, mail_from_error_string = mail_from_func((*mail_from), ip, (*auth_login), (*auth_password), esmtp_authed)
 
 		if (mail_from_authed == false) {
 
@@ -399,7 +399,7 @@ func smtpExecCmd(ip_ac *ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls
 		(*rcpt_to_addresses) = append((*rcpt_to_addresses), string(s))
 
 		var rcpt_to_error_string string
-		(*authed), rcpt_to_error_string = rcpt_to_func(string(s), ip, esmtp_authed)
+		(*authed), rcpt_to_error_string = rcpt_to_func(string(s), ip, esmtp_authed, (*mail_from))
 
 		if ((*authed) == true) {
 			conn.Write([]byte("250 OK\r\n"))
@@ -754,7 +754,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								}
 
 								// send the headers for validation
-								authed = headers_func(headers, ip, &esmtp_authed)
+								authed = headers_func(headers, ip, &esmtp_authed, mail_from, rcpt_to_addresses)
 
 								if (authed == false) {
 									conn.Write([]byte("221 not authorized\r\n"))
@@ -1489,7 +1489,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 				// full email received
 				// none of the data passed in the pointers should be accessed after this
 				// because it is sent in a pointer to a user level closure of a module
-				full_message_func(&smtp_data, &headers, &parts_headers, &parts, &dkim_valid, &ip, &esmtp_authed, &mail_from, &rcpt_to_addresses)
+				full_message_func(&smtp_data, &headers, &parts_headers, &parts, &dkim_valid, &ip, &esmtp_authed, mail_from, rcpt_to_addresses)
 
 				// reset values
 				smtp_data = nil

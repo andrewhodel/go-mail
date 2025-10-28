@@ -137,31 +137,31 @@ func main() {
 	resend_queue = make(map[string] gomail.OutboundMail)
 	go resend_loop()
 
-	go gomail.SmtpServer(&ip_ac, config, func(from_address string, ip string, auth_login string, auth_password string, esmtp_authed *bool) (bool, string) {
+	go gomail.SmtpServer(&ip_ac, config, func(mail_from string, ip string, auth_login string, auth_password string, esmtp_authed *bool) (bool, string) {
 
-		// from_address		MAIL FROM value
+		// mail_from		MAIL FROM value
 		// ip			ip address of the sending client
 		// auth_login		ESTMP AUTH login
 		// auth_password	ESTMP AUTH password
 		// esmtp_authed		ESTMP authed status (set in this closure)
 
 		// MAIL FROM
-		//fmt.Println("mail from", from_address)
+		//fmt.Println("mail from", mail_from)
 		//fmt.Println("AUTH login", auth_login)
 		//fmt.Println("AUTH password", auth_password)
 
 		// get the email local-part and domain
-		address_parts := strings.Split(from_address, "@")
+		address_parts := strings.Split(mail_from, "@")
 		//fmt.Println(address_parts)
 
 		if (len(address_parts) != 2) {
-			// from_address must be in the form local-part@domain.tld
+			// mail_from must be in the form local-part@domain.tld
 			return false, ""
 		}
 
 		// authenticate the session with esmtp
-		if (from_address == "" || auth_password == "") {
-		} else if (users[from_address] == auth_password) {
+		if (mail_from == "" || auth_password == "") {
+		} else if (users[mail_from] == auth_password) {
 			// authenticated
 			(*esmtp_authed) = true
 			return true, ""
@@ -175,11 +175,14 @@ func main() {
 		// allow to next closure as this may be a local inbox
 		return true, ""
 
-	}, func(to_address string, ip string, esmtp_authed *bool) (bool, string) {
+	}, func(to_address string, ip string, esmtp_authed *bool, mail_from string) (bool, string) {
+
+		// this is called once per RCPT TO address
 
 		// to_address		RCPT TO value
 		// ip			ip address of the sending client
 		// esmtp_authed		ESTMP authed status
+		// mail_from		MAIL FROM value
 
 		// RCPT TO
 		//fmt.Println("mail to", to_address)
@@ -200,11 +203,13 @@ func main() {
 		// like "450 RCPT TO address is being rate limited"
 		return false, ""
 
-	}, func(headers map[string]string, ip string, esmtp_authed *bool) bool {
+	}, func(headers map[string]string, ip string, esmtp_authed *bool, mail_from string, rcpt_to_addresses []string) bool {
 
 		// headers		parsed headers
 		// ip			ip address of the sending client
 		// esmtp_authed		ESTMP authed status
+		// mail_from		MAIL FROM value
+		// rcpt_to_addresses	email addresses receiving this email at this server only, sent in RCPT TO SMTP commands
 
 		// headers
 		// verify the message-id with stored messages to the same address to prevent duplicates
@@ -213,7 +218,7 @@ func main() {
 		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
 		return true
 
-	}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, esmtp_authed *bool, mail_from *string, rcpt_to_addresses *[]string) {
+	}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, esmtp_authed *bool, mail_from string, rcpt_to_addresses []string) {
 
 		// email_data		raw email data as received (headers and body)
 		// headers		parsed headers
@@ -222,7 +227,7 @@ func main() {
 		// dkim_valid		true if DKIM validated by the domain's public key
 		// ip			ip address of the sending client
 		// esmtp_authed		ESTMP authed status
-		// mail_from		email address sent in MAIL FROM SMTP command
+		// mail_from		MAIL FROM value
 		// rcpt_to_addresses	email addresses receiving this email at this server only, sent in RCPT TO SMTP commands
 
 		//fmt.Println(string((*email_data)))
@@ -231,7 +236,7 @@ func main() {
 			dkim_string = "true"
 		}
 		fmt.Println("full email received, length: " + strconv.Itoa(len((*email_data))) + "\nDKIM valid: " + dkim_string + "\nIP Address: " + (*ip))
-		//fmt.Println(string((*email_data)) + "\nMAIL FROM: " + (*mail_from) + "\nRCPT TO: " + fmt.Sprintf("%+v", (*rcpt_to_addresses)))
+		//fmt.Println(string((*email_data)) + "\nMAIL FROM: " + mail_from + "\nRCPT TO: " + fmt.Sprintf("%+v", rcpt_to_addresses))
 
 		// get list of each address to send to
 		// send to external servers
@@ -239,9 +244,9 @@ func main() {
 		var send_addresses []mail.Address
 
 		// add addresses from the RCPT TO SMTP commands
-		for a := range((*rcpt_to_addresses)) {
+		for a := range rcpt_to_addresses {
 
-			rcpt_tf, rcpt_tf_err := mail.ParseAddress((*rcpt_to_addresses)[a])
+			rcpt_tf, rcpt_tf_err := mail.ParseAddress(rcpt_to_addresses[a])
 			if rcpt_tf_err == nil {
 
 				already_exists := false
@@ -291,7 +296,7 @@ func main() {
 				var om gomail.OutboundMail
 				om.DkimPrivateKey = pk
 				om.DkimDomain = "aaaaaaaaaaaaaaaaaa._domainkey.domain.tld"
-				from_address, _ := mail.ParseAddress((*mail_from))
+				from_address, _ := mail.ParseAddress(mail_from)
 				om.From = from_address
 				om.Subj = (*headers)["subject"]
 				var raw_body = (*email_data)[h_split_pos:end_split_pos]
