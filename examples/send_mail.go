@@ -25,14 +25,14 @@ func main() {
 	attachment.Type = "text/plain"
 	om.Attachments = append(om.Attachments, &attachment)
 
-	// if you have not setup a server yet, you can send an email directly to an IP address
-	om.ReceivingHost = "172.16.10.24"
-	// this works insecurely without TLS
-	// unless om.RequireServerNameOfReceivingAddresses = true or the TLS certificate has a Subject Alternative Name (SAN) list with the IP address of om.ReceivingHost
-
 	var to []*mail.Address
 	to = append(to, &mail.Address{"Andrew Hodel", "andrew@xyzbots.com"})
 	om.To = to
+
+	// if you have not setup a server yet, you can send an email directly to an IP address
+	// this works insecurely without TLS
+	// unless om.RequireServerNameOfReceivingAddresses = true or the TLS certificate has a Subject Alternative Name (SAN) list with the IP address of om.ReceivingHost
+	om.ReceivingHost = "172.16.10.24"
 
 	// returns gomail.SentMail
 	var sent_mail = gomail.SendMail(&om)
