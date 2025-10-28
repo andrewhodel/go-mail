@@ -45,7 +45,7 @@ import (
 
 type mail_from_func func(string, string, string, string, *bool) (bool, string)
 type rcpt_to_func func(string, string, *bool, string) (bool, string)
-type headers_func func(map[string]string, string, *bool, string, []string) bool
+type headers_func func(map[string]string, string, *bool, string, []string) (bool, string)
 type full_message_func func(*[]byte, *map[string]string, *[]map[string]string, *[][]byte, *bool, *string, *bool, string, []string)
 type pop3_auth_func func(string, string, string, string) bool
 type pop3_stat_func func(string) (int, int)
@@ -754,10 +754,16 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								}
 
 								// send the headers for validation
-								authed = headers_func(headers, ip, &esmtp_authed, mail_from, rcpt_to_addresses)
+								var headers_response = ""
+								authed, headers_response = headers_func(headers, ip, &esmtp_authed, mail_from, rcpt_to_addresses)
 
 								if (authed == false) {
-									conn.Write([]byte("221 not authorized\r\n"))
+
+									if (headers_response == "") {
+										conn.Write([]byte("221 not authorized\r\n"))
+									} else {
+										conn.Write([]byte(headers_response + "\r\n"))
+									}
 									conn.Close()
 									return
 								}

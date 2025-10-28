@@ -203,7 +203,7 @@ func main() {
 		// like "450 RCPT TO address is being rate limited"
 		return false, ""
 
-	}, func(headers map[string]string, ip string, esmtp_authed *bool, mail_from string, rcpt_to_addresses []string) bool {
+	}, func(headers map[string]string, ip string, esmtp_authed *bool, mail_from string, rcpt_to_addresses []string) (bool, string) {
 
 		// headers		parsed headers
 		// ip			ip address of the sending client
@@ -215,8 +215,11 @@ func main() {
 		// verify the message-id with stored messages to the same address to prevent duplicates
 
 		// return true if allowed
-		// return false to ignore the email, disconnect the socket and add an invalid auth to ip_ac
-		return true
+		// return false to disconnect the socket, add an invalid auth to ip_ac and return "221 not authorized"
+
+		// the 2nd argument can be set to something other than the default "221 not authorized"
+		// like "221 there is an invalid header"
+		return true, ""
 
 	}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, esmtp_authed *bool, mail_from string, rcpt_to_addresses []string) {
 
