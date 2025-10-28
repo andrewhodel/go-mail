@@ -361,8 +361,8 @@ func smtpExecCmd(ip_ac *ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls
 			ipac.ModifyAuth(ip_ac, "invalid_login", ip)
 
 			if (mail_from_error_string == "") {
-				// use default response, 221
-				conn.Write([]byte("221 not authorized\r\n"))
+				// use default response, 454
+				conn.Write([]byte("454 not authorized\r\n"))
 			} else {
 				// use mail_from_error_string
 				conn.Write([]byte(mail_from_error_string + "\r\n"))
@@ -435,9 +435,7 @@ func smtpExecCmd(ip_ac *ipac.Ipac, using_tls bool, conn net.Conn, tls_config tls
 			// invalid auth
 			ipac.ModifyAuth(ip_ac, "invalid_login", ip)
 
-			// 221 <domain>
-			// service closing transmission channel
-			conn.Write([]byte("221 not authorized\r\n"))
+			conn.Write([]byte("454 not authorized\r\n"))
 			conn.Close()
 		}
 
@@ -501,14 +499,14 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 		if (authed == false && sent_cmds > 3) {
 			// should be authorized
-			conn.Write([]byte("221 unauthenticated send limit exceeded\r\n"))
+			conn.Write([]byte("450 unauthenticated send limit exceeded\r\n"))
 			conn.Close()
 			return
 		}
 
 		if (authed == false && sent_bytes > 400) {
 			// disconnect unauthed connections that have sent more than N bytes
-			conn.Write([]byte("221 unauthenticated send limit exceeded\r\n"))
+			conn.Write([]byte("450 unauthenticated send limit exceeded\r\n"))
 			conn.Close()
 			return
 		}
@@ -536,7 +534,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 		if (uint64(len(smtp_data)) > config.SmtpMaxEmailSize) {
 			//fmt.Println("smtp data too big from ", ip)
-			conn.Write([]byte("221 send limit exceeded\r\n"))
+			conn.Write([]byte("450 send limit exceeded\r\n"))
 			conn.Close()
 			return
 		}
@@ -760,7 +758,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								if (authed == false) {
 
 									if (headers_response == "") {
-										conn.Write([]byte("221 not authorized\r\n"))
+										conn.Write([]byte("454 not authorized\r\n"))
 									} else {
 										conn.Write([]byte(headers_response + "\r\n"))
 									}

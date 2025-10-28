@@ -168,9 +168,9 @@ func main() {
 		}
 
 		// if only allowing esmtp_authed clients
-		// the 2nd argument can be set to something other than the default "221 not authorized"
-		// like "221 your IP address is spamming too much, 5000 emails in the last 15 seconds"
-		// like "221 your domain is spamming too much, 5000 emails in the last 15 seconds"
+		// the 2nd argument can be set to something other than the default "454 not authorized"
+		// like "450 your IP address is spamming too much, 5000 emails in the last 15 seconds"
+		// like "450 your domain is spamming too much, 5000 emails in the last 15 seconds"
 
 		// allow to next closure as this may be a local inbox
 		return true, ""
@@ -215,10 +215,10 @@ func main() {
 		// verify the message-id with stored messages to the same address to prevent duplicates
 
 		// return true if allowed
-		// return false to disconnect the socket, add an invalid auth to ip_ac and return "221 not authorized"
+		// return false to disconnect the socket, add an invalid auth to ip_ac and return "454 not authorized"
 
-		// the 2nd argument can be set to something other than the default "221 not authorized"
-		// like "221 there is an invalid header"
+		// the 2nd argument can be set to something other than the default "454 not authorized"
+		// like "550 there is an invalid header"
 		return true, ""
 
 	}, func(email_data *[]byte, headers *map[string]string, parts_headers *[]map[string]string, parts *[][]byte, dkim_valid *bool, ip *string, esmtp_authed *bool, mail_from string, rcpt_to_addresses []string) {
