@@ -3106,7 +3106,7 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 	var sent_mail SentMail
 	sent_mail.ReceivingServers = make(map[string] *SentMailReceivingServer)
 
-	if ((*outbound_mail).From.String() == "") {
+	if ((*outbound_mail).From == nil) {
 		sent_mail.Error = errors.New("requires a from address")
 		return sent_mail
 	}
