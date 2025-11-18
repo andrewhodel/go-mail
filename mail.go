@@ -3573,7 +3573,8 @@ func new_socket_SendMail(outbound_mail *OutboundMail, connect_host string, to_ad
 			if (mx_err == nil) {
 				if (len(mx) > 0) {
 					// use the returned MX record
-					actual_connect_host = mx[0].Host
+					// there can be a dot after the domain
+					actual_connect_host = strings.TrimSuffix(mx[0].Host, ".")
 				}
 			} else {
 				// there was no MX record or there was an error connecting to the DNS server
