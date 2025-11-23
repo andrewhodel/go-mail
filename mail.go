@@ -3401,6 +3401,13 @@ func SendMail(outbound_mail *OutboundMail) (SentMail) {
 
 	}
 
+	if (headers["date"] == "") {
+
+		// add date header
+		headers["date"] = time.Now().String()
+
+	}
+
 	if (len((*outbound_mail).To) > 0) {
 		var th = ""
 		for i := range (*outbound_mail).To {
