@@ -217,6 +217,16 @@ func main() {
 		// return true if allowed
 		// return false to disconnect the socket, add an invalid auth to ip_ac and return "454 not authorized"
 
+		for header_name := range headers {
+
+			if (len(header_name) > 140) {
+				return false, "550 header name too long"
+			} else if (len(headers[header_name]) > 9000) {
+				return false, "550 header too long"
+			}
+
+		}
+
 		// the 2nd argument can be set to something other than the default "454 not authorized"
 		// like "550 there is an invalid header"
 		return true, ""

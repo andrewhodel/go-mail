@@ -36,6 +36,8 @@ ParseTags()
 
 Read the examples in `examples/`.
 
+Read the config file in `examples/`, the maximum inbound email size is important.
+
 # Installation
 
 ```
