@@ -8,8 +8,8 @@ import (
 	"net/mail"
 	"crypto/md5"
 	"encoding/hex"
-	"strconv"
 	"strings"
+	"strconv"
 	"os"
 	"sync"
 	"bytes"
@@ -243,13 +243,8 @@ func main() {
 		// mail_from		MAIL FROM value
 		// rcpt_to_addresses	email addresses receiving this email at this server only, sent in RCPT TO SMTP commands
 
+		fmt.Printf("full email received\t\tlength: %d\n\tDKIM: %t\t\tIP Address: %s\n\tMAIL FROM\t\t%s\n\tRCPT TO\t\t\t%v\n", len((*email_data)), (*dkim_valid), (*ip), mail_from, rcpt_to_addresses)
 		//fmt.Println(string((*email_data)))
-		var dkim_string = "false"
-		if ((*dkim_valid) == true) {
-			dkim_string = "true"
-		}
-		fmt.Println("full email received, length: " + strconv.Itoa(len((*email_data))) + "\nDKIM valid: " + dkim_string + "\nIP Address: " + (*ip))
-		//fmt.Println(string((*email_data)) + "\nMAIL FROM: " + mail_from + "\nRCPT TO: " + fmt.Sprintf("%+v", rcpt_to_addresses))
 
 		// get list of each address to send to
 		// send to external servers
