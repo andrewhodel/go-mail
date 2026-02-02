@@ -290,8 +290,39 @@ func main() {
 		for a := range(send_addresses) {
 
 			if (users[send_addresses[a].Address] != "") {
+
 				// send to local domain
 				fmt.Println("storing at local domain:\n" + string(*email_data))
+
+				// add to mailbox
+				var one gomail.Email
+				one.Headers = (*headers)
+				one.Flags = []string{"\\Recent"}
+				one.InternalDate = time.Now()
+				one.Rfc822Size = len((*email_data))
+				one.Mailbox = "INBOX"
+				one.Body = (*email_data)[h_split_pos:end_split_pos]
+
+				// update the mailbox data of this account, this message being placed in INBOX
+				mailboxes_mutex.Lock()
+				var message_id = 0
+				for mb := range(mailboxes[send_addresses[a].Address]) {
+					mailbox := mailboxes[send_addresses[a].Address][mb]
+					if (mailbox.Name == one.Mailbox) {
+						message_id = mailboxes[send_addresses[a].Address][mb].LastMessageId + 1
+						mailboxes[send_addresses[a].Address][mb].LastMessageId = message_id
+						mailboxes[send_addresses[a].Address][mb].TotalSize += one.Rfc822Size
+					}
+				}
+				mailboxes_mutex.Unlock()
+
+				// set the message_id as one greater than the last
+				one.Uid = message_id
+
+				message_store_mutex.Lock()
+				message_store[send_addresses[a].Address] = append(message_store[send_addresses[a].Address], one)
+				message_store_mutex.Unlock()
+
 			} else {
 
 				if ((*esmtp_authed) == false) {
