@@ -669,6 +669,9 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								headers = get_headers_from_header_lines(header_lines)
 
+								// add a go-mail-received header
+								headers["go-mail-received"] = time.Now().String()
+
 								for header_name := range headers {
 
 									// set the header_value
@@ -704,7 +707,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 										dkim_hp = temp
 
 										if (dkim_hp["v"] == "" || dkim_hp["a"] == "" || dkim_hp["d"] == "" || dkim_hp["s"] == "" || dkim_hp["bh"] == "" || dkim_hp["b"] == "") {
-											//fmt.Println("incomplete dkim header")
+											headers["go-mail-dkim-validation-errors"] = headers["go-mail-dkim-validation-errors"] + "(incomplete DKIM header)"
 										} else {
 
 											// required DKIM header tags
@@ -718,7 +721,6 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 											// and they should all be the same or DKIM is invalid (smtp TLS validation from server to client per client TLS domain is not in SMTP, TLS validation of the from domain would make SMTP perfect.  TLS validation of the MAIL FROM sender would make SMTP better.)
 											// make a TXT dns query to selector._domainkey.domain to get the key
 											var query_domain = dkim_hp["s"] + "._domainkey." + dkim_hp["d"]
-											//fmt.Println("DKIM DNS Query TXT:", query_domain)
 
 											// keep track of the number of dkim lookups
 											dkim_lookups = dkim_lookups + 1
@@ -1156,7 +1158,7 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 													// the dkim data is valid
 													dkim_valid = true
-													headers["go-mail-dkim-validation"] = "(dkim validated by go-mail at time of reciept using public key " + dkim_public_key + " from query domain " + dkim_hp["s"] + "._domainkey." + dkim_hp["d"] + ")"
+													headers["go-mail-dkim-validation"] = "(dkim validated by go-mail at time of reciept using public key " + dkim_public_key + " from query domain " + dkim_hp["s"] + "._domainkey." + dkim_hp["d"] + " " + time.Now().String() + ")"
 
 												} else {
 													//fmt.Println("DKIM validation error, canonicalized headers hash did not equal to the b= tag signature decoded from base64 using rsa.VerifyPKCS1v15())")
@@ -1585,7 +1587,7 @@ func get_headers_from_header_lines(header_lines [][]byte) (map[string] string) {
 			continue
 		}
 
-		ss := bytes.Split(header_line, []byte(":"))
+		ss := bytes.SplitN(header_line, []byte(":"), 2)
 
 		if (len(ss) > 1) {
 
