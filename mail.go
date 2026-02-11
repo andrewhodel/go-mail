@@ -1236,6 +1236,16 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								// get the headers from this part
 								last_header_end_pos := bytes.Index(part, []byte("\r\n\r\n"))
+
+								if (last_header_end_pos == -1) {
+
+									// invalid format
+									conn.Write([]byte("500 cannot find end of header sequence\r\n"))
+									conn.Close()
+									return
+
+								}
+
 								var part_header_lines = bytes.Split(part[0:last_header_end_pos], []byte("\r\n"))
 								part_headers = get_headers_from_header_lines(part_header_lines)
 
@@ -1438,6 +1448,16 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 
 								// get the headers from this part
 								last_header_end_pos := bytes.Index(part, []byte("\r\n\r\n"))
+
+								if (last_header_end_pos == -1) {
+
+									// invalid format
+									conn.Write([]byte("500 cannot find end of header sequence\r\n"))
+									conn.Close()
+									return
+
+								}
+
 								var part_header_lines = bytes.Split(part[0:last_header_end_pos], []byte("\r\n"))
 								part_headers = get_headers_from_header_lines(part_header_lines)
 
