@@ -1470,6 +1470,14 @@ func smtpHandleClient(ip_ac *ipac.Ipac, is_new bool, using_tls bool, conn net.Co
 								// remove the headers from part
 								part = slices.Delete(part, 0, last_header_end_pos + 4)
 
+								if (len(part) < 2) {
+
+									conn.Write([]byte("500 missing newline sequence after headers\r\n"))
+									conn.Close()
+									return
+
+								}
+
 								// remove the last \r\n from part
 								part = slices.Delete(part, len(part) - 2, len(part))
 
