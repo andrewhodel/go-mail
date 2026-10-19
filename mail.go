@@ -1646,34 +1646,38 @@ func smtpListenNoEncrypt(ip_ac *ipac.Ipac, lport int64, config Config, tls_confi
 
 	fmt.Print("SMTP (RFC 5321 plus ESMTP extensions) listening on port " + strconv.FormatInt(lport, 10) + " with STARTTLS\n")
 
-	for {
-		conn, err := ln.Accept()
+	go func() {
 
-		go func() {
+		for {
+			conn, err := ln.Accept()
 
-			if err != nil {
-				// handle error
-				return
-			}
-			defer conn.Close()
+			go func() {
 
-			// take the port number off the address
-			var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
-			_ = port
-			_ = iperr
+				if err != nil {
+					// handle error
+					return
+				}
+				defer conn.Close()
 
-			if (ipac.TestIpAllowed(ip_ac, ip) == false) {
-				conn.Close()
-				return
-			}
+				// take the port number off the address
+				var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+				_ = port
+				_ = iperr
 
-			//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
+				if (ipac.TestIpAllowed(ip_ac, ip) == false) {
+					conn.Close()
+					return
+				}
 
-			smtpHandleClient(ip_ac, true, false, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+				//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
-		}()
+				smtpHandleClient(ip_ac, true, false, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
-	}
+			}()
+
+		}
+
+	}()
 
 	return nil
 
@@ -1690,36 +1694,40 @@ func smtpListenTLS(ip_ac *ipac.Ipac, lport int64, config Config, tls_config tls.
 
 	fmt.Print("SMTP (RFC 5321 plus ESMTP extensions with RFC 8314) listening on port " + strconv.FormatInt(lport, 10) + " with TLS\n")
 
-	for {
+	go func() {
 
-		conn, err := listener.Accept()
+		for {
 
-		go func() {
+			conn, err := listener.Accept()
 
-			if err != nil {
-				// error with socket
-				//fmt.Printf("smtp server socket error: : %s\n", err)
-				return
-			}
-			defer conn.Close()
+			go func() {
 
-			// take the port number off the address
-			var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
-			_ = port
-			_ = iperr
+				if err != nil {
+					// error with socket
+					//fmt.Printf("smtp server socket error: : %s\n", err)
+					return
+				}
+				defer conn.Close()
 
-			if (ipac.TestIpAllowed(ip_ac, ip) == false) {
-				conn.Close()
-				return
-			}
+				// take the port number off the address
+				var ip, port, iperr = net.SplitHostPort(conn.RemoteAddr().String())
+				_ = port
+				_ = iperr
 
-			//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
+				if (ipac.TestIpAllowed(ip_ac, ip) == false) {
+					conn.Close()
+					return
+				}
 
-			smtpHandleClient(ip_ac, true, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+				//fmt.Printf("smtp server: accepted connection from %s on port %d\n", ip, lport)
 
-		}()
+				smtpHandleClient(ip_ac, true, true, conn, tls_config, ip, config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
 
-	}
+			}()
+
+		}
+
+	}()
 
 	return nil
 
