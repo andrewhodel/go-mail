@@ -129,7 +129,7 @@ type Esmtp struct {
 
 }
 
-func ParseTags(b string) (map[string]string, []string) {
+func ParseTags(input string) (map[string]string, []string) {
 
 	// converts "   a=asdf;  b=afsdf" to
 	// v["a"] = "asdf"
@@ -146,7 +146,7 @@ func ParseTags(b string) (map[string]string, []string) {
 	i := 0
 	for {
 
-		if (i == len(b)) {
+		if (i == len(input)) {
 			break
 		}
 
@@ -154,12 +154,12 @@ func ParseTags(b string) (map[string]string, []string) {
 
 			// add to the value
 
-			if (b[i] == ';' || i == len(b)-1) {
+			if (input[i] == ';' || i == len(input)-1) {
 				// value end or end of data found
 
-				if (b[i] != ';') {
+				if (input[i] != ';') {
 					// last character is part of the value
-					value += string(b[i])
+					value += string(input[i])
 				}
 
 				//fmt.Println("tag", tag, value)
@@ -176,14 +176,14 @@ func ParseTags(b string) (map[string]string, []string) {
 				continue
 
 			} else {
-				value += string(b[i])
+				value += string(input[i])
 			}
 
 		} else {
 
 			// add to the tag
 
-			if (b[i] == '=') {
+			if (input[i] == '=') {
 
 				// separator found
 				tag_found = true
@@ -194,8 +194,8 @@ func ParseTags(b string) (map[string]string, []string) {
 			} else {
 
 				// do not add tabs or spaces in the tag name
-				if (b[i] != 9 && b[i] != ' ') {
-					tag += string(b[i])
+				if (input[i] != 9 && input[i] != ' ') {
+					tag += string(input[i])
 				}
 
 			}
@@ -1636,13 +1636,12 @@ func get_headers_from_header_lines(header_lines [][]byte) (map[string] string) {
 
 }
 
-func smtpListenNoEncrypt(ip_ac *ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpListenNoEncrypt(ip_ac *ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) (error) {
 
 	ln, err := net.Listen("tcp", ":" + strconv.FormatInt(lport, 10))
 	if err != nil {
-		// handle error
-		fmt.Printf("server: listen: %s\n", err)
-		os.Exit(1)
+		// return error
+		return err
 	}
 
 	fmt.Print("SMTP (RFC 5321 plus ESMTP extensions) listening on port " + strconv.FormatInt(lport, 10) + " with STARTTLS\n")
@@ -1676,16 +1675,17 @@ func smtpListenNoEncrypt(ip_ac *ipac.Ipac, lport int64, config Config, tls_confi
 
 	}
 
+	return nil
+
 }
 
-func smtpListenTLS(ip_ac *ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func smtpListenTLS(ip_ac *ipac.Ipac, lport int64, config Config, tls_config tls.Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) (error) {
 
 	service := ":" + strconv.FormatInt(lport, 10)
 	listener, err := tls.Listen("tcp", service, &tls_config)
 
 	if err != nil {
-		fmt.Printf("server: listen: %s\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	fmt.Print("SMTP (RFC 5321 plus ESMTP extensions with RFC 8314) listening on port " + strconv.FormatInt(lport, 10) + " with TLS\n")
@@ -1721,6 +1721,8 @@ func smtpListenTLS(ip_ac *ipac.Ipac, lport int64, config Config, tls_config tls.
 
 	}
 
+	return nil
+
 }
 
 func CertFromPemBytes(bytes []byte, password string) (tls.Certificate, error) {
@@ -1745,7 +1747,9 @@ func CertFromPemBytes(bytes []byte, password string) (tls.Certificate, error) {
 	return cert, nil
 }
 
-func SmtpServer(ip_ac *ipac.Ipac, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) {
+func SmtpServer(ip_ac *ipac.Ipac, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) ([]error) {
+
+	var errors []error
 
 	var cert tls.Certificate
 	var err error
@@ -1759,8 +1763,8 @@ func SmtpServer(ip_ac *ipac.Ipac, config Config, mail_from_func mail_from_func, 
 	}
 
 	if err != nil {
-		fmt.Printf("SMTP server did not load TLS certificates: %s\n", err)
-		os.Exit(1)
+		errors = append(errors, err)
+		return errors
 	}
 
 	rootcert, rootcert_err := CertFromPemBytes(rootca, "")
@@ -1777,16 +1781,24 @@ func SmtpServer(ip_ac *ipac.Ipac, config Config, mail_from_func mail_from_func, 
 
 	for p := range config.SmtpNonTLSPorts {
 		// start a server without TLS on every defined non TLS port
-		go smtpListenNoEncrypt(ip_ac, config.SmtpNonTLSPorts[p], config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+		var err = smtpListenNoEncrypt(ip_ac, config.SmtpNonTLSPorts[p], config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+		if (err != nil) {
+			errors = append(errors, err)
+		}
 	}
 	for p := range config.SmtpTLSPorts {
 		// start a server with TLS on every defined TLS port
-		go smtpListenTLS(ip_ac, config.SmtpTLSPorts[p], config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+		var err = smtpListenTLS(ip_ac, config.SmtpTLSPorts[p], config, tls_config, mail_from_func, rcpt_to_func, headers_func, full_message_func)
+		if (err != nil) {
+			errors = append(errors, err)
+		}
 	}
+
+	return errors
 
 }
 
-func Pop3Server(config Config, ip_ac *ipac.Ipac, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) {
+func Pop3Server(config Config, ip_ac *ipac.Ipac, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) (error) {
 
 	var cert tls.Certificate
 	var err error
@@ -1800,8 +1812,7 @@ func Pop3Server(config Config, ip_ac *ipac.Ipac, pop3_auth_func pop3_auth_func, 
 	}
 
 	if err != nil {
-		fmt.Printf("POP3 server did not load TLS certificates: %s\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	rootcert, rootcert_err := CertFromPemBytes(rootca, "")
@@ -1820,8 +1831,7 @@ func Pop3Server(config Config, ip_ac *ipac.Ipac, pop3_auth_func pop3_auth_func, 
 	listener, err := tls.Listen("tcp", service, &tls_config)
 
 	if err != nil {
-		fmt.Printf("POP3 server error: %s", err)
-		os.Exit(1)
+		return err
 	}
 
 	fmt.Println("POP3 (RFC 1939 with RFC 8314) listening on port " + strconv.FormatInt(config.Pop3Port, 10))
@@ -1855,6 +1865,8 @@ func Pop3Server(config Config, ip_ac *ipac.Ipac, pop3_auth_func pop3_auth_func, 
 		}()
 
 	}
+
+	return nil
 
 }
 
@@ -2156,7 +2168,7 @@ func pop3TimestampBanner(fqdn string) (string) {
 
 }
 
-func Imap4Server(config Config, ip_ac *ipac.Ipac, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func, imap4_search_func imap4_search_func) {
+func Imap4Server(config Config, ip_ac *ipac.Ipac, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func, imap4_search_func imap4_search_func) (error) {
 
 	var cert tls.Certificate
 	var err error
@@ -2170,8 +2182,7 @@ func Imap4Server(config Config, ip_ac *ipac.Ipac, imap4_auth_func imap4_auth_fun
 	}
 
 	if err != nil {
-		fmt.Printf("IMAP4 server did not load TLS certificates: %s\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	rootcert, rootcert_err := CertFromPemBytes(rootca, "")
@@ -2190,8 +2201,7 @@ func Imap4Server(config Config, ip_ac *ipac.Ipac, imap4_auth_func imap4_auth_fun
 	listener, err := tls.Listen("tcp", service, &tls_config)
 
 	if err != nil {
-		fmt.Printf("IMAP4 server error: %s", err)
-		os.Exit(1)
+		return err
 	}
 
 	fmt.Println("IMAP4 listening on port " + strconv.FormatInt(config.Imap4Port, 10))
@@ -2225,6 +2235,8 @@ func Imap4Server(config Config, ip_ac *ipac.Ipac, imap4_auth_func imap4_auth_fun
 		}()
 
 	}
+
+	return nil
 
 }
 

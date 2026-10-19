@@ -16,19 +16,19 @@ Include the module and easily integrate an email client or a server with closure
 # Functions
 
 ```go
-SendMail()
+SendMail(outbound_mail *OutboundMail)
 	SMTP Client that supports DKIM, ESMTP AUTH and STARTTLS.
 
-SmtpServer()
-	Start SMTP Server(s) with or without TLS, there are closures for each step of the SMTP process.
+SmtpServer(ip_ac *ipac.Ipac, config Config, mail_from_func mail_from_func, rcpt_to_func rcpt_to_func, headers_func headers_func, full_message_func full_message_func) ([]error)
+	Start TLS and non TLS servers on multiple ports based on configuration.
 
-Pop3Server()
-	Start POP3 Server with TLS, there are closures for each step of the POP3 process.
+Pop3Server(config Config, ip_ac *ipac.Ipac, pop3_auth_func pop3_auth_func, pop3_stat_func pop3_stat_func, pop3_list_func pop3_list_func, pop3_retr_func pop3_retr_func, pop3_dele_func pop3_dele_func) (error)
+	Start POP3 Server with TLS.
 
-Imap4Server()
-	Start IMAP4 Server with TLS, there are closures for each step of the IMAP4 process.
+Imap4Server(config Config, ip_ac *ipac.Ipac, imap4_auth_func imap4_auth_func, imap4_list_func imap4_list_func, imap4_select_func imap4_select_func, imap4_fetch_func imap4_fetch_func, imap4_store_func imap4_store_func, imap4_close_func imap4_close_func, imap4_search_func imap4_search_func) (error)
+	Start IMAP4 Server with TLS.
 
-ParseTags()
+ParseTags(input string) (map[string]string, []string)
 	Parse string with key=value tags to map[string]string.
 ```
 
